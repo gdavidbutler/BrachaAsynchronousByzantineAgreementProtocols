@@ -1,12 +1,14 @@
 # BrachaAsynchronousByzantineAgreementProtocols
 
-A C library implementing all four figures of Gabriel Bracha's 1987 paper as composable pure state machines.
+A C library implementing all four figures of Gabriel Bracha's 1987 paper as composable pure state machines, plus the Asynchronous Common Subset (ACS) protocol built from them.
 
 ## Overview
 
 This is the only known implementation of all four figures of Bracha 1987 as composable pure state machines. ANSI C89, zero dependencies. No I/O, no threads, no dynamic allocation -- the caller provides memory and executes output actions.
 
 Each module boundary matches the paper exactly, so the paper's proofs apply per-module: Lemmas 1-4 to Fig 1, Lemmas 5-7 to Fig 2/3, Lemmas 9-10 and Theorems 1-2 to Fig 4.
+
+The ACS module composes these figures into multi-value agreement: N peers propose arbitrary values, and all honest peers agree on the same common subset of at least n-t proposals. This is the BKR construction (Ben-Or, Kelmer, Rabin 1994).
 
 ## The Paper
 
@@ -34,10 +36,18 @@ Without these guarantees, the protocol's safety and liveness proofs do not hold.
 
 ## Architecture
 
-The composition pipeline:
+### Binary Consensus Pipeline (bracha87)
 
 ```
 message -> Fig1(n,t) -> accept -> Fig3(N) -> round complete -> Fig4(coin) -> decision
+```
+
+### Asynchronous Common Subset (acs)
+
+```
+N proposals -> N Fig1(n,t,vLen) -> accept -> vote 1 in BA
+                                   n-t accepted -> vote 0 in remaining BAs
+                                   N BA instances -> Fig1+Fig3+Fig4 each -> common subset
 ```
 
 ### Figure 1 -- Reliable Broadcast Primitive
@@ -64,9 +74,19 @@ Three rounds per phase. Embeds a Fig 3 instance internally. Parameterized by a c
 
 Decided processes continue participating so others can reach consensus. The protocol decides in expected O(1) phases with a random coin.
 
+### ACS -- Asynchronous Common Subset
+
+Composes Fig 1 and Fig 4 into multi-value agreement using the BKR construction (Ben-Or, Kelmer, Rabin 1994; also described in Miller et al. 2016 "HoneyBadger BFT").
+
+Each of N peers proposes an arbitrary value (up to vLen+1 bytes). N Fig 1 instances reliably broadcast the proposals. N Fig 4 instances run binary consensus on "include this origin?" When a peer accepts origin j's proposal via Fig 1, it votes 1 in BA_j. When n-t proposals have been accepted, it votes 0 for all remaining BAs. The common subset is {j : BA_j decided 1}, guaranteed to contain at least n-t origins.
+
+Two message classes flow on the network: proposal messages (Fig 1 carrying arbitrary values) and consensus messages (Fig 1 carrying binary values for per-origin BA instances). Consensus messages are routed internally by (origin, round, broadcaster) -- the broadcaster identifies whose Fig 1 broadcast within a consensus round, distinct from the message sender.
+
+The ACS state machine knows its own peer index (self), which the bracha87 figures do not need. This is because ACS manages internal routing: when Fig 4 says BROADCAST, ACS must tag the outgoing INITIAL with self as the broadcaster.
+
 ## API Overview
 
-### Key Entry Points
+### bracha87 Entry Points
 
 | Function | Purpose |
 |---|---|
@@ -82,6 +102,18 @@ Decided processes continue participating so others can reach consensus. The prot
 | `bracha87Fig4Sz(n, maxPhases)` | Compute allocation size for a Fig 4 instance |
 | `bracha87Fig4Init(...)` | Initialize with initial value, coin function, and closure |
 | `bracha87Fig4Round(f4, round, n_msgs, senders, values)` | Process a completed round; returns action bitmask |
+
+### ACS Entry Points
+
+| Function | Purpose |
+|---|---|
+| `acsSz(n, vLen, maxPhases)` | Compute allocation size for an ACS instance |
+| `acsInit(...)` | Initialize with peer index, coin function, and closure |
+| `acsProposalInput(acs, origin, type, from, value, out)` | Process a proposal broadcast message; returns action count |
+| `acsConsensusInput(acs, origin, round, broadcaster, type, from, value, out)` | Process a consensus message; returns action count |
+| `acsComplete(acs)` | Check if all N BAs have decided |
+| `acsSubset(acs, origins)` | Retrieve the decided common subset |
+| `acsProposalValue(acs, origin)` | Retrieve accepted proposal value for an origin |
 
 ### Caller Composition Pattern
 
@@ -151,13 +183,22 @@ make clean      # remove build artifacts
 make clobber    # remove all generated files
 ```
 
-The example program demonstrates the full composition:
+The consensus example demonstrates binary consensus (Fig1+Fig3+Fig4):
 
 ```bash
-example/consensus 4 1                    # 4 peers, 1 Byzantine fault
-example/consensus -s 42 7 2              # shuffled delivery
-example/consensus -b 3 7 2               # Byzantine peer 0 equivocates
-example/consensus -v 4 1 0 0 1 1         # verbose trace, split initial values
+./consensus 4 1                          # 4 peers, 1 Byzantine fault
+./consensus -s 42 7 2                    # shuffled delivery
+./consensus -b 3 7 2                     # Byzantine peer 0 equivocates
+./consensus -v 4 1 0 0 1 1              # verbose trace, split initial values
+```
+
+The ACS example demonstrates multi-value agreement on arbitrary strings:
+
+```bash
+./example_acs 4 1 joe sam sally tim      # 4 peers propose strings
+./example_acs -s 42 4 1 joe sam sally tim  # shuffled delivery (different subset)
+./example_acs 4 0 joe sam sally tim      # t=0: all proposals included
+./example_acs -v 7 2 alpha bravo charlie delta echo foxtrot golf
 ```
 
 Compiler flags: `-std=c89 -pedantic -Wall -Wextra -Os -g`
