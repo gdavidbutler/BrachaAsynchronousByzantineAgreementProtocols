@@ -19,10 +19,20 @@
  */
 
 /*
- * Asynchronous Common Subset — BKR construction.
+ * Asynchronous Common Subset — BKR94 Protocol Agreement[Q].
  *
- * Composes N Fig1 instances (proposal reliable broadcast) with
- * N Fig4 instances (binary consensus on inclusion).
+ * Direct implementation of Ben-Or/Kelmer/Rabin 1994 Section 4
+ * Figure 3.  See BKR94ACS.txt for the paper extract this file is
+ * aligned to.  Composes N Bracha87 Fig1 instances (proposal reliable
+ * broadcast supplying Q) with N Bracha87 Fig4 instances (binary
+ * consensus on inclusion — the BKR94 "BA" subprotocol).
+ *
+ * Step 1 lives in acsProposalInput (vote 1 on Fig1 ACCEPT).
+ * Step 2 lives in acsConsensusInput (vote 0 fanout when the
+ *   2t+1-BAs-with-output-1 threshold hits inside the Fig4Round
+ *   DECIDE branch).
+ * Step 3 lives in acsConsensusInput (ACS_ACT_COMPLETE when all N
+ *   BAs have decided) and acsSubset (SubSet = { j : BA_j = 1 }).
  */
 
 #include <assert.h>
@@ -293,9 +303,17 @@ acsInit(
 }
 
 /*
- * Internal: start a binary consensus vote for origin j.
- * Generates ACS_ACT_CON_SEND actions for the INITIAL broadcast.
- * Returns number of actions added.
+ * Internal: enter this peer's input value into BA_origin.
+ *
+ * Called from both BKR94 Step 1 (vote=1 on Fig1 ACCEPT) and BKR94
+ * Step 2 (vote=0 when the n-t-BAs-output-1 threshold fires).  The
+ * voted[] guard enforces the paper's single-input-per-BA rule:
+ * "Once a BA has received an input from Pi (1 from step 1 or 0
+ * from step 2), step 1 and step 2 stop touching it — BA semantics
+ * demand a single input per player."  First caller wins.
+ *
+ * Returns number of ACS_ACT_CON_SEND actions added (0 if already
+ * voted, 1 otherwise).
  */
 static unsigned int
 acsVote(
@@ -312,7 +330,7 @@ acsVote(
 
   voted[origin] = vote ? ACS_VOTE_ONE : ACS_VOTE_ZERO;
 
-  /* Generate INITIAL broadcast to all peers */
+  /* Initial broadcast of our BA input to all peers */
   out->act = ACS_ACT_CON_SEND;
   out->origin = (unsigned char)origin;
   out->round = 0;
@@ -380,24 +398,27 @@ acsProposalInput(
       ++nact;
     } else if (f1out[k] == BRACHA87_ACCEPT) {
       /*
-       * Proposal accepted for this origin.
-       * Vote 1 in this origin's binary consensus.
+       * BKR94 Step 1: "For each Pj for whom you (Pi) know Q(j) = 1,
+       * participate in BA_j with input 1."
+       *
+       * In this deployment Q(j) = 1 is carried by Fig1 ACCEPT for
+       * origin j (reliable broadcast of P_j's proposal completed).
+       * Bracha87 Lemma 4 gives BKR94's Q assumption (2) for free:
+       * if any honest accepts, every honest eventually accepts, so
+       * every honest eventually learns Q(j) for every j.
+       *
+       * Step 2's "n-t BAs with output 1" trigger is NOT here; it
+       * fires in acsConsensusInput's DECIDE branch.  Triggering
+       * vote-0 on n-t Fig1 ACCEPTs instead (a HoneyBadger-style
+       * optimization) would be the wrong reading of the paper:
+       * Part A case (i) of the Lemma 2 proof requires the
+       * precondition "2t+1 BAs have already terminated with
+       * output 1" for Step 2 to fire, and weakening it to "n-t
+       * Fig1 accepts" gives no proof of Part A under BKR94's BA
+       * validity axiom (which promises output b only when all
+       * correct inputs are b, not when a quorum are).
        */
       nact += acsVote(a, origin, 1, &out[nact]);
-      ++a->nAccepted;
-
-      /*
-       * If we've now accepted n-t proposals, vote 0 for all
-       * origins where we haven't voted yet.
-       */
-      if (!a->threshold
-       && a->nAccepted >= A_N(a) - a->t) {
-        unsigned int j;
-
-        a->threshold = 1;
-        for (j = 0; j < A_N(a); ++j)
-          nact += acsVote(a, j, 0, &out[nact]);
-      }
     }
   }
 
@@ -509,6 +530,42 @@ acsConsensusInput(
           ++nact;
           ++a->nDecided;
 
+          /*
+           * BKR94 Step 2: "Upon completing 2t+1 BA protocols with
+           * output 1, enter input 0 to every BA protocol for which
+           * you have not yet entered a value."
+           *
+           * 2t+1 is n-t in the paper's regime (n = 3t+1) and is the
+           * threshold we use for all supported (n, t).  The trigger
+           * is a BA decide with value 1, not a Fig1 accept — see
+           * Part A case (i) of the Lemma 2 proof, which relies on
+           * "2t+1 BAs have already terminated with output 1" as the
+           * step 2 precondition.
+           *
+           * Guarded by !threshold so the vote-0 fanout fires at most
+           * once per ACS instance.
+           */
+          if (f4->decision == 1 && !a->threshold) {
+            ++a->nDecidedOne;
+            if (a->nDecidedOne >= A_N(a) - a->t) {
+              unsigned int j;
+
+              a->threshold = 1;
+              for (j = 0; j < A_N(a); ++j)
+                nact += acsVote(a, j, 0, &out[nact]);
+            }
+          }
+
+          /*
+           * BKR94 Step 3: "Upon completing all n BA protocols, let
+           * SubSet_i be the set of indices j for which BA_j had
+           * output 1.  Output SubSet_i."
+           *
+           * We emit ACS_ACT_COMPLETE once when nDecided reaches N.
+           * acsSubset implements the "j for which BA_j had output 1"
+           * read.  Part C of the proof (BA agreement) guarantees
+           * every honest peer computes the same SubSet.
+           */
           if (a->nDecided >= A_N(a)) {
             a->complete = 1;
             out[nact].act = ACS_ACT_COMPLETE;
@@ -579,6 +636,14 @@ acsSubset(
   if (!a || !origins)
     return (0);
 
+  /*
+   * BKR94 Step 3 read: SubSet_i = { j : BA_j had output 1 }.
+   * Lemma 2 Part A gives |SubSet| >= 2t+1 = n-t; Part C gives
+   * cross-peer agreement on SubSet; Part D gives Q(j)=1 for every
+   * j in SubSet.  Caller must gate this on acsComplete() to observe
+   * the final subset; a mid-run read reports the partial set of
+   * decided-1 origins.
+   */
   dec = acsDecision(a);
   cnt = 0;
   for (i = 0; i < A_N(a); ++i) {

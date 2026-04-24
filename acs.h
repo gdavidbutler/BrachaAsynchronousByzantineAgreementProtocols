@@ -21,18 +21,37 @@
 /*
  * Asynchronous Common Subset (ACS)
  *
- * Composition of Bracha's reliable broadcast (Figure 1) and binary
- * consensus (Figure 4) into multi-value agreement on a common subset.
+ * Ben-Or/Kelmer/Rabin 1994, "Asynchronous Secure Computations with
+ * Optimal Resilience (Extended Abstract)" — PODC '94, pages 183-192,
+ * Section 4 Figure 3 (Protocol Agreement[Q]).  See BKR94ACS.txt for
+ * the line-by-line extract used as the spec for this file.
  *
- * Construction (BKR 1994, Miller et al. 2016 "HoneyBadger"):
- *   Each of N peers proposes a value (arbitrary bytes, up to vLen+1).
- *   N reliable broadcasts (Fig1) distribute proposals.
- *   N binary consensuses (Fig4) decide inclusion.
+ * Composes Bracha87 Figure 1 (reliable broadcast) with Bracha87
+ * Figure 4 (binary consensus) into multi-value agreement on a common
+ * subset.  N reliable broadcasts distribute proposals; N binary
+ * consensuses decide inclusion.
  *
- *   When Fig1 for origin j reaches ACCEPT: vote 1 in BA_j.
- *   When n-t Fig1 broadcasts accepted: vote 0 in all remaining BAs.
- *   Common subset = { j : BA_j decided 1 }.
- *   Subset contains at least n-t origins.
+ * BKR94 parameterizes the protocol by a predicate Q(j).  Under the
+ * two paper assumptions — (1) Q eventually equals 1 for every honest
+ * player, (2) every honest player eventually learns Q(j) for every j
+ * — Protocol Agreement[Q] produces a common subset of size >= n-t of
+ * players for whom Q(j) = 1.
+ *
+ *   This deployment: Q(j) = "Fig1 reliable broadcast for origin j
+ *   has ACCEPTED" (the BKR94 MPC-construction equivalent is "P_j has
+ *   properly shared his input").  Reliable broadcast gives both Q
+ *   assumptions for free: Fig1 eventually accepts every honest
+ *   broadcast at every honest receiver (Lemma 4).
+ *
+ * The three Figure 3 steps, per player P_i:
+ *
+ *   Step 1. For each j where you know Q(j)=1, vote 1 in BA_j.
+ *   Step 2. When 2t+1 BAs have terminated with output 1, vote 0 in
+ *           every BA where you have not yet entered a value.
+ *   Step 3. Once all N BAs terminate, SubSet = { j : BA_j = 1 }.
+ *
+ * The "2t+1" in Step 2 is n-t in the paper's regime (n = 3t+1) and
+ * is the implementation threshold for all supported (n, t).
  *
  * Pure state machine: no I/O, no threads, no dynamic allocation.
  * Caller provides memory and delivers messages.
@@ -98,10 +117,10 @@ struct acs {
   unsigned char vLen;       /* proposal value length encoding: actual = vLen + 1 */
   unsigned char maxPhases;  /* per binary consensus instance */
   unsigned char self;       /* this peer's index (needed for consensus routing) */
-  unsigned char nAccepted;  /* count of Fig1 proposals accepted */
-  unsigned char nDecided;   /* count of BAs that have decided */
-  unsigned char threshold;  /* 1 if n-t proposals accepted (vote-0 done) */
-  unsigned char complete;   /* 1 if all N BAs decided */
+  unsigned char nDecidedOne;/* BKR94 Step 2 trigger: count of BAs decided with output 1 */
+  unsigned char nDecided;   /* BKR94 Step 3 trigger: count of BAs that have decided */
+  unsigned char threshold;  /* 1 iff BKR94 Step 2 has fired (vote-0 fanout done) */
+  unsigned char complete;   /* 1 iff all N BAs decided (Step 3 complete) */
   /*
    * Pad data[] to a pointer-aligned offset so Fig4 instances carved
    * out of data[] are correctly aligned for their function-pointer
@@ -157,9 +176,9 @@ acsInit(
  * Maximum output actions from a single input call.
  *
  * Proposal input (ACS_CLS_PROPOSAL):
- *   up to 2 (echo/ready) + 1 (vote-1 on accept) + N (vote-0 for all
- *   remaining origins when n-t accepted threshold hits).
- *   Bound: N + 3.
+ *   up to 2 (echo/ready) + 1 (vote-1 from BKR94 Step 1 on accept).
+ *   Step 2's vote-0 fanout lives in consensus input, not here.
+ *   Bound: 3.
  *
  * Consensus input (ACS_CLS_CONSENSUS):
  *   up to 2 (echo/ready) from the Fig1 input, plus a cascade over
@@ -169,18 +188,17 @@ acsInit(
  *   per-call ceiling is:
  *     2 (echo/ready) + M (CON_SEND per round advanced)
  *       + 1 (BA_DECIDED, fires at most once per BA)
+ *       + N (BKR94 Step 2 vote-0 fanout, fires at most once per ACS)
  *       + 1 (COMPLETE, fires at most once per ACS instance)
- *   where M = maxPhases * 3 is the BA's round bound.  Bound: M + 4.
+ *   where M = maxPhases * 3 is the BA's round bound and N = n + 1.
+ *   Bound: M + N + 4.
  *
- * The unified per-call bound is the larger of the two, plus the
- * non-accept items in the triggering Fig1 output.  ACS_MAX_ACTS
- * takes maxPhases so the cascade bound is exact for the configured
- * consensus, not the 85-phase absolute ceiling.
+ * Consensus case strictly dominates, so the unified bound is
+ * M + N + 4.  ACS_MAX_ACTS takes maxPhases so the cascade bound is
+ * exact for the configured consensus, not the 85-phase ceiling.
  */
 #define ACS_MAX_ACTS(n, maxPhases) \
-  (((unsigned int)(n) + 4) > ((unsigned int)(maxPhases) * 3 + 4) \
-   ? ((unsigned int)(n) + 4) \
-   : ((unsigned int)(maxPhases) * 3 + 4))
+  ((unsigned int)(maxPhases) * 3 + (unsigned int)(n) + 5)
 
 /*
  * Process a proposal broadcast message (ACS_CLS_PROPOSAL).

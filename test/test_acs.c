@@ -400,8 +400,8 @@ testShuffled(
    * With shuffled delivery, different peers accept different proposals
    * first, causing vote splits in some BA instances. The deterministic
    * alternating coin can resolve these splits against inclusion,
-   * making the subset smaller than n-t. With a random coin the
-   * |subset| >= n-t guarantee holds w.h.p. (see HoneyBadger Thm 3).
+   * making the subset smaller than n-t. With a random coin, BA
+   * terminates w.h.p. and BKR94 Lemma 2 gives |SubSet| >= 2t+1 = n-t.
    *
    * Here we verify the hard guarantees: totality and agreement.
    */
@@ -855,6 +855,122 @@ testPostDecideContinuation(
 }
 
 /*------------------------------------------------------------------------*/
+/*  BKR94 Step 2 trigger regression test                                  */
+/*                                                                        */
+/*  Pre-fix, acsProposalInput counted Fig1 ACCEPTs and fired the vote-0   */
+/*  fanout when nAccepted reached n-t.  BKR94 Lemma 2 Part A case (i)     */
+/*  requires the step-2 trigger to be "2t+1 BAs terminated with output 1",*/
+/*  not "2t+1 Fig1 ACCEPTs" — these coincide only in benign runs and      */
+/*  diverge under asynchrony or Byzantine scheduling.                     */
+/*                                                                        */
+/*  This test pins the corrected semantics by driving all N Fig1          */
+/*  instances to ACCEPT on a single peer via acsProposalInput and         */
+/*  asserting:                                                            */
+/*    - a->threshold stays 0 after each accept (step 2 not fired),        */
+/*    - no ACS_ACT_CON_SEND with conValue=0 comes out of the proposal     */
+/*      path (no vote-0 fanout),                                          */
+/*    - voted[j] == ACS_VOTE_ONE for every j (step 1 fired per accept).   */
+/*                                                                        */
+/*  With the pre-fix code the (n-t)th accept would flip threshold to 1    */
+/*  and emit a burst of vote-0 CON_SEND actions.                          */
+/*------------------------------------------------------------------------*/
+
+static void
+testStepTwoTrigger(
+  void
+){
+  struct acs *a;
+  unsigned long sz;
+  struct acsAct acts[ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
+  unsigned int nacts;
+  unsigned int k;
+  unsigned int N;
+  unsigned int origin;
+  unsigned int voteZeroSeen;
+  unsigned int voteOneSeen;
+  unsigned char encN;
+  unsigned char t;
+  unsigned char val;
+  unsigned char from;
+  const unsigned char *voted;
+
+  printf("\nACS — BKR94 Step 2 trigger regression\n");
+
+  encN = 3;  /* actual N = 4, n-t threshold = 3 */
+  t = 1;
+  N = (unsigned int)encN + 1;
+  val = 'x';
+
+  sz = acsSz(encN, 0, MAX_PHASES);
+  a = (struct acs *)calloc(1, sz);
+  if (!a) {
+    check("alloc acs instance", 0);
+    return;
+  }
+  acsInit(a, encN, t, 0, MAX_PHASES, 0, testCoin, 0);
+
+  voteZeroSeen = 0;
+  voteOneSeen = 0;
+
+  /*
+   * Drive each Fig1 instance to ACCEPT on this peer:
+   *   INITIAL from origin + ECHO from every peer + READY from every
+   *   peer.  The READY cascade crosses 2t+1 inside acsProposalInput
+   *   and fires ACS_ACT_CON_SEND (vote-1, step 1).
+   */
+  for (origin = 0; origin < N; ++origin) {
+    nacts = acsProposalInput(a, (unsigned char)origin, BRACHA87_INITIAL,
+                             (unsigned char)origin, &val, acts);
+    for (k = 0; k < nacts; ++k)
+      if (acts[k].act == ACS_ACT_CON_SEND) {
+        if (acts[k].conValue == 0) ++voteZeroSeen;
+        else                       ++voteOneSeen;
+      }
+
+    for (from = 0; from < N; ++from) {
+      nacts = acsProposalInput(a, (unsigned char)origin, BRACHA87_ECHO,
+                               from, &val, acts);
+      for (k = 0; k < nacts; ++k)
+        if (acts[k].act == ACS_ACT_CON_SEND) {
+          if (acts[k].conValue == 0) ++voteZeroSeen;
+          else                       ++voteOneSeen;
+        }
+    }
+
+    for (from = 0; from < N; ++from) {
+      nacts = acsProposalInput(a, (unsigned char)origin, BRACHA87_READY,
+                               from, &val, acts);
+      for (k = 0; k < nacts; ++k)
+        if (acts[k].act == ACS_ACT_CON_SEND) {
+          if (acts[k].conValue == 0) ++voteZeroSeen;
+          else                       ++voteOneSeen;
+        }
+    }
+
+    /*
+     * Pre-fix, threshold flipped to 1 on the (n-t)th accept
+     * (origin == 2 here) and the vote-0 fanout fired for the one
+     * still-un-voted origin.
+     */
+    check("proposal accepts don't fire step 2", a->threshold == 0);
+  }
+
+  check("no vote-0 emitted from proposal path", voteZeroSeen == 0);
+  check("vote-1 emitted for every accepted origin", voteOneSeen == N);
+
+  /*
+   * voted[] layout: first N bytes of a->data (see acsVoted in
+   * acs.c).  ACS_VOTE_ONE is the internal sentinel value 1.
+   */
+  voted = a->data;
+  for (origin = 0; origin < N; ++origin)
+    check("voted[j] == VOTE_ONE after accept", voted[origin] == 1);
+
+  free(a);
+  printf("  n=4 t=1: step 2 stays in consensus path, step 1 fires per accept\n");
+}
+
+/*------------------------------------------------------------------------*/
 /*  Main                                                                  */
 /*------------------------------------------------------------------------*/
 
@@ -878,6 +994,7 @@ main(
   testIdenticalProposals();
   testLargerN();
   testPostDecideContinuation();
+  testStepTwoTrigger();
 
   free(MsgQ);
 

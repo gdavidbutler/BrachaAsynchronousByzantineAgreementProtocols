@@ -1,0 +1,158 @@
+Ben-Or, Kelmer, Rabin 1994 "Asynchronous Secure Computations with
+Optimal Resilience (Extended Abstract)"
+PODC '94, pages 183-192
+
+Scope of this extract: Section 4 only ("Agreement on a Common Subset").
+The rest of the paper — USS (ultimate secret sharing), linear
+combination, multiplication, the Equality ZK Proof, the overall MPC
+construction — is unrelated to ACS as a standalone primitive and is
+deliberately not summarized here.
+
+
+Model and tools
+---------------
+
+n players, fully connected asynchronous network, up to t Byzantine
+faults. The MPC construction targets optimal resilience t < n/3
+(i.e. n >= 3t + 1).
+
+ACS takes two subprotocols as inputs:
+
+  A-Cast — asynchronous broadcast channel (Bracha 1984). Reliable
+    broadcast: if one honest player delivers v, every honest player
+    eventually delivers v; all honest players deliver the same v; if
+    the sender is honest, every honest player delivers.
+
+  BA — fast asynchronous Byzantine Agreement (Canetti-Rabin 1993).
+    Standard binary BA with termination (in the probabilistic sense
+    of the Canetti-Rabin construction), agreement, and validity.
+
+
+Problem setup
+-------------
+
+A dynamic predicate Q assigns a binary value to each player. "Dynamic"
+means not all players' values are assigned at the same time; when
+player Pj's value Q(j) is finally assigned, every honest player
+eventually learns it. The protocol assumes two facts about Q:
+
+  1. Every honest player eventually has Q = 1.
+  2. Every honest player eventually learns the value of Q(j) for
+     every j (whatever that value is).
+
+Goal: the honest players agree on a subset of size at least n - t of
+players for whom Q = 1.
+
+The predicate Q is application-supplied. In BKR94's own MPC
+construction, Q is "player P_j has properly shared his input" — Q(j)
+becomes 1 for honest P_j after P_j's USS-Share completes, and honest
+players learn this by observing the shared state. ACS is generic in Q;
+any monotone "eventually-1-for-honest, eventually-known-to-all"
+predicate works.
+
+
+Protocol Agreement[Q]  (Figure 3)
+---------------------------------
+
+Code for player Pi. N BAs are run concurrently, one per player index
+(BA_1 ... BA_n). Each player enters his inputs asynchronously as
+evidence accumulates.
+
+  1. For each Pj for whom you (Pi) know Q(j) = 1, participate in
+     BA_j with input 1.
+
+  2. Upon completing 2t+1 BA protocols with output 1, enter input 0
+     to every BA protocol for which you have not yet entered a value.
+
+  3. Upon completing all n BA protocols, let SubSet_i be the set of
+     indices j for which BA_j had output 1. Output SubSet_i.
+
+The "2t+1" threshold in step 2 is n - t in the paper's regime
+(n = 3t+1). The paper cites [BOEY91] for a technique that runs the N
+BAs with an O(log n) factor saving over naive independent execution;
+that optimization is about shared coin / round reuse across the N
+instances and does not change the protocol's external behavior.
+
+
+Lemma 2 (paper's statement, paraphrased)
+----------------------------------------
+
+Running Protocol Agreement[Q], the honest players agree on a common
+subset SubSet of size at least 2t+1 of players Pj for whom Q(j) = 1.
+
+
+Proof structure
+---------------
+
+The paper's proof has four obligations. Each uses only the three
+named subprotocol properties (A-Cast agreement, BA agreement, BA
+validity/termination) plus the two assumptions about Q.
+
+[Part A] At least 2t+1 BA instances terminate with output 1.
+
+  Case (i): Some honest player Pi entered a 0 value to some BA in
+    step 2. The precondition of step 2 is "2t+1 BAs have already
+    terminated with output 1" — done.
+
+  Case (ii): No honest player ever entered 0. Then every honest
+    player's input to every BA is 1 (step 1, under assumption Q(h)=1
+    for every honest h eventually). By BA's validity property (if all
+    correct inputs are b, output is b), each such BA outputs 1. There
+    are at least n - t = 2t+1 honest players, so at least 2t+1 BAs
+    output 1.
+
+[Part B] All n BA instances terminate.
+
+  By Part A, at least 2t+1 BAs output 1. By step 2 of the protocol,
+  every honest player therefore enters an input (either 1 from step 1
+  or 0 from step 2) to every BA. By BA's termination property, every
+  BA terminates.
+
+[Part C] All honest players agree on SubSet.
+
+  After step 3 each honest player's SubSet has size >= 2t+1 (by Part
+  A). BA's agreement property says every BA_j delivers the same
+  output to every honest player, so every honest player has the same
+  SubSet.
+
+[Part D] For each j in SubSet, Q(j) = 1.
+
+  BA_j terminated with output 1. By BA's validity property, at least
+  one honest player entered 1 as input to BA_j. By step 1, that
+  honest player does this only after learning Q(j) = 1. Since Q is
+  "eventually known to all honest," Q(j) = 1 holds.
+
+
+Remarks for implementers
+------------------------
+
+- The protocol is expressed in terms of what a single honest player
+  does as events happen. Nothing is scheduled; all actions are
+  triggered by completions (A-Cast deliveries of "Q(j)=1" evidence,
+  BA terminations). The three steps describe "input to BA_j when you
+  learn Q(j)=1", "input 0 to still-open BAs after 2t+1 1-outputs",
+  and "read outputs once all n BAs finish."
+
+- Step 1 and step 2 can fire concurrently for different j values.
+  Once a BA has received an input from Pi (1 from step 1 or 0 from
+  step 2), step 1 and step 2 stop touching it — BA semantics demand
+  a single input per player.
+
+- The 2t+1 threshold in step 2 is the n-t honest-majority bound. It
+  cannot be lowered: without it a mass of 0-inputs could force BA_j
+  to output 0 for all j (SubSet empty). It cannot be raised to
+  require unanimity either: n-t is the maximum guarantee honest
+  players have in an asynchronous network (they cannot wait for the
+  t faulty players).
+
+- Lemma 2 is silent about *which* players end up in SubSet beyond
+  "Q(j) = 1". In particular, SubSet need not contain every honest
+  player: an honest P_h whose Q-value propagates slowly, or whose
+  "Q(h)=1" evidence reaches fewer than n-t honest players before
+  step 2 fires for those players, may be excluded. Honest exclusion
+  is a feature of the async model, not a bug.
+
+- Per the paper, "To save a log n factor of running the n BAs, the
+  techniques of [BOEY91] are employed." That is an optimization for
+  the MPC use case where many Agreement[Q] calls happen; it does not
+  change Lemma 2.
