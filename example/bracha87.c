@@ -1,15 +1,15 @@
 /*
- * BrachaAsynchronousByzantineAgreementProtocols - Example consensus program
+ * asynchronousByzantineAgreementProtocols - Example Bracha87 program
  * Copyright (C) 2026 G. David Butler <gdb@dbSystems.com>
  *
- * This file is part of BrachaAsynchronousByzantineAgreementProtocols
+ * This file is part of asynchronousByzantineAgreementProtocols
  *
- * BrachaAsynchronousByzantineAgreementProtocols is free software: you can
+ * asynchronousByzantineAgreementProtocols is free software: you can
  * redistribute it and/or modify it under the terms of the GNU Lesser General
  * Public License as published by the Free Software Foundation, either
  * version 3 of the License, or (at your option) any later version.
  *
- * BrachaAsynchronousByzantineAgreementProtocols is distributed in the hope
+ * asynchronousByzantineAgreementProtocols is distributed in the hope
  * that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
  * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Lesser General Public License for more details.
@@ -19,8 +19,8 @@
  */
 
 /*
- * consensus.c — Standalone demonstration of Bracha's asynchronous
- * Byzantine agreement protocol (Figures 1, 3, and 4 composed).
+ * bracha87.c — Standalone demonstration of Bracha's asynchronous
+ * Byzantine agreement protocol (Bracha87 Figures 1, 3, and 4 composed).
  *
  * Composition pipeline:
  *   message -> Fig1(n,t) -> accept -> Fig3(N) -> round complete
@@ -34,10 +34,10 @@
  * Fisher-Yates shuffling demonstrates asynchrony tolerance.
  *
  * Build:
- *   (from project root) make example/consensus
+ *   (from project root) make example_bracha87
  *
  * Usage:
- *   ./consensus [-v] [-s seed] [-b split] n t [init_values...]
+ *   ./example_bracha87 [-v] [-s seed] [-b split] n t [init_values...]
  */
 
 #include <stdio.h>
@@ -622,7 +622,7 @@ cleanup:
 
 usage:
   fprintf(stderr,
-    "usage: consensus [-v] [-s seed] [-b split] n t [init_values...]\n"
+    "usage: example_bracha87 [-v] [-s seed] [-b split] n t [init_values...]\n"
     "  n          total peers (1-%d)\n"
     "  t          max Byzantine faults\n"
     "  init_values  per-peer initial values (0 or 1), defaults to all 0\n"

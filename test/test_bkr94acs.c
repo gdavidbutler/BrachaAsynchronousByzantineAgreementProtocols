@@ -1,14 +1,14 @@
 /*
- * Tests for acs.[hc] — Asynchronous Common Subset.
+ * Tests for bkr94acs.[hc] — BKR94 Asynchronous Common Subset.
  *
- * Simulates all-to-all message passing for ACS:
- *   N proposal broadcasts (Fig1 with arbitrary values)
- *   N binary consensuses (Fig4 per origin)
+ * Simulates all-to-all message passing for BKR94 ACS:
+ *   N proposal broadcasts (Bracha87 Fig1 with arbitrary values)
+ *   N binary consensuses (Bracha87 Fig4 per origin)
  *
  * Verifies:
  *   Agreement  — all honest peers decide the same subset
  *   Validity   — subset contains at least n-t origins
- *   Totality   — all BAs decide (acsComplete returns true)
+ *   Totality   — all BAs decide (bkr94acsComplete returns true)
  *   Values     — accepted proposal values match what was proposed
  *   Ordering   — deterministic sort produces identical order at each peer
  */
@@ -16,7 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "acs.h"
+#include "bkr94acs.h"
 
 static int Fail;
 
@@ -46,7 +46,7 @@ testCoin(
 }
 
 /*------------------------------------------------------------------------*/
-/*  Message queue — same pattern as example/acs.c                         */
+/*  Message queue — same pattern as example/bkr94acs.c                    */
 /*------------------------------------------------------------------------*/
 
 #define MAX_PEERS  16
@@ -124,7 +124,7 @@ qShuffle(
 }
 
 /*------------------------------------------------------------------------*/
-/*  ACS simulation engine                                                 */
+/*  BKR94 ACS simulation engine                                           */
 /*------------------------------------------------------------------------*/
 
 struct acsResult {
@@ -134,7 +134,7 @@ struct acsResult {
 };
 
 /*
- * Run one ACS simulation.
+ * Run one BKR94 ACS simulation.
  * proposals[i] is a NUL-terminated string for peer i.
  * vLen is the padded value length (>= longest string + 1).
  * Returns 0 on success, -1 on allocation failure.
@@ -148,23 +148,23 @@ runAcs(
  ,unsigned int shuffleSeed
  ,struct acsResult results[]
 ){
-  struct acs *peers[MAX_PEERS];
+  struct bkr94acs *peers[MAX_PEERS];
   unsigned long sz;
   unsigned int i;
   unsigned int j;
 
-  sz = acsSz(n - 1, vLen - 1, MAX_PHASES);
+  sz = bkr94acsSz(n - 1, vLen - 1, MAX_PHASES);
   memset(peers, 0, sizeof (peers));
   for (i = 0; i < n; ++i) {
-    peers[i] = (struct acs *)calloc(1, sz);
+    peers[i] = (struct bkr94acs *)calloc(1, sz);
     if (!peers[i]) {
       for (j = 0; j < i; ++j)
         free(peers[j]);
       return (-1);
     }
-    acsInit(peers[i], (unsigned char)(n - 1), (unsigned char)t,
-            (unsigned char)(vLen - 1), MAX_PHASES, (unsigned char)i,
-            testCoin, 0);
+    bkr94acsInit(peers[i], (unsigned char)(n - 1), (unsigned char)t,
+                 (unsigned char)(vLen - 1), MAX_PHASES, (unsigned char)i,
+                 testCoin, 0);
   }
 
   qInit();
@@ -172,7 +172,7 @@ runAcs(
   /* Bootstrap: each peer broadcasts INITIAL of their proposal */
   for (i = 0; i < n; ++i)
     for (j = 0; j < n; ++j)
-      qPush(ACS_CLS_PROPOSAL, (unsigned char)i, 0, 0,
+      qPush(BKR94ACS_CLS_PROPOSAL, (unsigned char)i, 0, 0,
             BRACHA87_INITIAL, (unsigned char)i, (unsigned char)j,
             (const unsigned char *)proposals[i], vLen);
 
@@ -182,8 +182,8 @@ runAcs(
   /* Process message queue */
   while (Qhead < Qtail) {
     struct msg *m;
-    struct acs *st;
-    struct acsAct acts[ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
+    struct bkr94acs *st;
+    struct bkr94acsAct acts[BKR94ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
     unsigned int nacts;
     unsigned int k;
     unsigned int oldTail;
@@ -197,41 +197,42 @@ runAcs(
      * incoming messages so its Fig1 echoes/readys continue to
      * reach peers still working on some BAs.  Skipping replicates
      * the post-decide stall the library itself was fixed to avoid
-     * (see acs.c acsConsensusInput comment on a->complete).
+     * (see bkr94acs.c bkr94acsConsensusInput comment on
+     * a->complete).
      */
     oldTail = Qtail;
 
-    if (m->cls == ACS_CLS_PROPOSAL) {
-      nacts = acsProposalInput(st, m->origin, m->type, m->from,
-                               m->value, acts);
+    if (m->cls == BKR94ACS_CLS_PROPOSAL) {
+      nacts = bkr94acsProposalInput(st, m->origin, m->type, m->from,
+                                    m->value, acts);
     } else {
-      nacts = acsConsensusInput(st, m->origin, m->round,
-                                m->broadcaster, m->type,
-                                m->from, m->value[0], acts);
+      nacts = bkr94acsConsensusInput(st, m->origin, m->round,
+                                     m->broadcaster, m->type,
+                                     m->from, m->value[0], acts);
     }
 
     for (k = 0; k < nacts; ++k) {
       unsigned int p;
 
       switch (acts[k].act) {
-      case ACS_ACT_PROP_ECHO:
-      case ACS_ACT_PROP_READY:
+      case BKR94ACS_ACT_PROP_ECHO:
+      case BKR94ACS_ACT_PROP_READY:
         {
           const unsigned char *pv;
 
-          pv = acsProposalValue(st, acts[k].origin);
+          pv = bkr94acsProposalValue(st, acts[k].origin);
           if (!pv)
             break;
           for (p = 0; p < n; ++p)
-            qPush(ACS_CLS_PROPOSAL, acts[k].origin, 0, 0,
-                  (acts[k].act == ACS_ACT_PROP_ECHO)
+            qPush(BKR94ACS_CLS_PROPOSAL, acts[k].origin, 0, 0,
+                  (acts[k].act == BKR94ACS_ACT_PROP_ECHO)
                     ? BRACHA87_ECHO : BRACHA87_READY,
                   m->to, (unsigned char)p, pv, vLen);
         }
         break;
-      case ACS_ACT_CON_SEND:
+      case BKR94ACS_ACT_CON_SEND:
         for (p = 0; p < n; ++p)
-          qPush(ACS_CLS_CONSENSUS, acts[k].origin, acts[k].round,
+          qPush(BKR94ACS_CLS_CONSENSUS, acts[k].origin, acts[k].round,
                 acts[k].broadcaster, acts[k].conType,
                 m->to, (unsigned char)p,
                 &acts[k].conValue, 1);
@@ -247,8 +248,8 @@ runAcs(
 
   /* Collect results */
   for (i = 0; i < n; ++i) {
-    results[i].complete = acsComplete(peers[i]);
-    results[i].subsetCnt = acsSubset(peers[i], results[i].subset);
+    results[i].complete = bkr94acsComplete(peers[i]);
+    results[i].subsetCnt = bkr94acsSubset(peers[i], results[i].subset);
   }
 
   for (i = 0; i < n; ++i)
@@ -323,7 +324,7 @@ testBasic(
   unsigned int n;
   unsigned int t;
 
-  printf("ACS — Basic honest tests\n");
+  printf("BKR94 ACS — Basic honest tests\n");
 
   /* n=1, t=0 */
   memset(proposals, 0, sizeof (proposals));
@@ -406,7 +407,7 @@ testShuffled(
    * Here we verify the hard guarantees: totality and agreement.
    */
 
-  printf("\nACS — Shuffled delivery tests\n");
+  printf("\nBKR94 ACS — Shuffled delivery tests\n");
 
   /* n=4, t=1 with 20 different seeds */
   n = 4;
@@ -486,7 +487,7 @@ testValues(
   void
 ){
   char proposals[MAX_PEERS][MAX_VLEN];
-  struct acs *peers[MAX_PEERS];
+  struct bkr94acs *peers[MAX_PEERS];
   unsigned long sz;
   unsigned int n;
   unsigned int t;
@@ -495,11 +496,12 @@ testValues(
   unsigned int j;
   int valuesOk;
 
-  printf("\nACS — Proposal value integrity tests\n");
+  printf("\nBKR94 ACS — Proposal value integrity tests\n");
 
   /*
    * Verify that accepted proposal values match what was proposed.
-   * Run a simulation, then check acsProposalValue for each included origin.
+   * Run a simulation, then check bkr94acsProposalValue for each
+   * included origin.
    */
   n = 4;
   t = 1;
@@ -510,64 +512,64 @@ testValues(
   strcpy(proposals[3], "tim");
   vLen = 6;
 
-  sz = acsSz(n - 1, vLen - 1, MAX_PHASES);
+  sz = bkr94acsSz(n - 1, vLen - 1, MAX_PHASES);
   for (i = 0; i < n; ++i) {
-    peers[i] = (struct acs *)calloc(1, sz);
-    acsInit(peers[i], (unsigned char)(n - 1), (unsigned char)t,
-            (unsigned char)(vLen - 1), MAX_PHASES, (unsigned char)i,
-            testCoin, 0);
+    peers[i] = (struct bkr94acs *)calloc(1, sz);
+    bkr94acsInit(peers[i], (unsigned char)(n - 1), (unsigned char)t,
+                 (unsigned char)(vLen - 1), MAX_PHASES, (unsigned char)i,
+                 testCoin, 0);
   }
 
   qInit();
   for (i = 0; i < n; ++i)
     for (j = 0; j < n; ++j)
-      qPush(ACS_CLS_PROPOSAL, (unsigned char)i, 0, 0,
+      qPush(BKR94ACS_CLS_PROPOSAL, (unsigned char)i, 0, 0,
             BRACHA87_INITIAL, (unsigned char)i, (unsigned char)j,
             (const unsigned char *)proposals[i], vLen);
 
   while (Qhead < Qtail) {
     struct msg *m;
-    struct acs *st;
-    struct acsAct acts[ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
+    struct bkr94acs *st;
+    struct bkr94acsAct acts[BKR94ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
     unsigned int nacts;
     unsigned int k;
 
     m = &MsgQ[Qhead++];
     st = peers[m->to];
-    if (acsComplete(st))
+    if (bkr94acsComplete(st))
       continue;
 
-    if (m->cls == ACS_CLS_PROPOSAL) {
-      nacts = acsProposalInput(st, m->origin, m->type, m->from,
-                               m->value, acts);
+    if (m->cls == BKR94ACS_CLS_PROPOSAL) {
+      nacts = bkr94acsProposalInput(st, m->origin, m->type, m->from,
+                                    m->value, acts);
     } else {
-      nacts = acsConsensusInput(st, m->origin, m->round,
-                                m->broadcaster, m->type,
-                                m->from, m->value[0], acts);
+      nacts = bkr94acsConsensusInput(st, m->origin, m->round,
+                                     m->broadcaster, m->type,
+                                     m->from, m->value[0], acts);
     }
 
     for (k = 0; k < nacts; ++k) {
       unsigned int p;
 
       switch (acts[k].act) {
-      case ACS_ACT_PROP_ECHO:
-      case ACS_ACT_PROP_READY:
+      case BKR94ACS_ACT_PROP_ECHO:
+      case BKR94ACS_ACT_PROP_READY:
         {
           const unsigned char *pv;
 
-          pv = acsProposalValue(st, acts[k].origin);
+          pv = bkr94acsProposalValue(st, acts[k].origin);
           if (!pv)
             break;
           for (p = 0; p < n; ++p)
-            qPush(ACS_CLS_PROPOSAL, acts[k].origin, 0, 0,
-                  (acts[k].act == ACS_ACT_PROP_ECHO)
+            qPush(BKR94ACS_CLS_PROPOSAL, acts[k].origin, 0, 0,
+                  (acts[k].act == BKR94ACS_ACT_PROP_ECHO)
                     ? BRACHA87_ECHO : BRACHA87_READY,
                   m->to, (unsigned char)p, pv, vLen);
         }
         break;
-      case ACS_ACT_CON_SEND:
+      case BKR94ACS_ACT_CON_SEND:
         for (p = 0; p < n; ++p)
-          qPush(ACS_CLS_CONSENSUS, acts[k].origin, acts[k].round,
+          qPush(BKR94ACS_CLS_CONSENSUS, acts[k].origin, acts[k].round,
                 acts[k].broadcaster, acts[k].conType,
                 m->to, (unsigned char)p,
                 &acts[k].conValue, 1);
@@ -584,12 +586,12 @@ testValues(
     unsigned char subset[MAX_PEERS];
     unsigned int cnt;
 
-    check("values: complete", acsComplete(peers[i]));
-    cnt = acsSubset(peers[i], subset);
+    check("values: complete", bkr94acsComplete(peers[i]));
+    cnt = bkr94acsSubset(peers[i], subset);
     for (j = 0; j < cnt; ++j) {
       const unsigned char *pv;
 
-      pv = acsProposalValue(peers[i], subset[j]);
+      pv = bkr94acsProposalValue(peers[i], subset[j]);
       if (!pv || memcmp(pv, proposals[subset[j]], vLen))
         valuesOk = 0;
     }
@@ -612,7 +614,7 @@ testMultiByteValues(
   unsigned int vLen;
   unsigned int i;
 
-  printf("\nACS — Multi-byte value tests\n");
+  printf("\nBKR94 ACS — Multi-byte value tests\n");
 
   /* Long strings: test vLen > 1 */
   n = 4;
@@ -656,7 +658,7 @@ testIdenticalProposals(
   char proposals[MAX_PEERS][MAX_VLEN];
   struct acsResult results[MAX_PEERS];
 
-  printf("\nACS — Identical proposal tests\n");
+  printf("\nBKR94 ACS — Identical proposal tests\n");
 
   /* All peers propose the same value */
   memset(proposals, 0, sizeof (proposals));
@@ -685,7 +687,7 @@ testLargerN(
   unsigned int seed;
   char label[128];
 
-  printf("\nACS — Larger N tests\n");
+  printf("\nBKR94 ACS — Larger N tests\n");
 
   /* n=13, t=4 */
   n = 13;
@@ -743,11 +745,12 @@ testLargerN(
 /*  Post-decide continuation regression test                              */
 /*                                                                        */
 /*  Bracha Fig4 requires a decided process to keep broadcasting so other  */
-/*  peers can decide.  An earlier version of acs.c short-circuited        */
-/*  acsConsensusInput when acsDecision[origin] != 0xFF, silently dropping */
-/*  all post-decide messages.  This test pokes the BA decision marker     */
-/*  directly, then verifies that a fresh consensus INITIAL for that       */
-/*  origin still drives Fig1 (ECHO emission) rather than returning zero.  */
+/*  peers can decide.  An earlier version of bkr94acs.c short-circuited   */
+/*  bkr94acsConsensusInput when bkr94acsDecision[origin] != 0xFF,         */
+/*  silently dropping all post-decide messages.  This test pokes the BA   */
+/*  decision marker directly, then verifies that a fresh consensus        */
+/*  INITIAL for that origin still drives Fig1 (ECHO emission) rather than */
+/*  returning zero.                                                       */
 /*  With the bug:  nacts == 0.                                            */
 /*  With the fix:  nacts >= 1 and includes a CON_SEND ECHO.               */
 /*------------------------------------------------------------------------*/
@@ -756,9 +759,9 @@ static void
 testPostDecideContinuation(
   void
 ){
-  struct acs *a;
+  struct bkr94acs *a;
   unsigned long sz;
-  struct acsAct acts[ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
+  struct bkr94acsAct acts[BKR94ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
   unsigned int nacts;
   unsigned int N;
   unsigned int k;
@@ -767,17 +770,17 @@ testPostDecideContinuation(
   unsigned char encN;
   unsigned char t;
 
-  printf("\nACS — Post-decide continuation regression\n");
+  printf("\nBKR94 ACS — Post-decide continuation regression\n");
 
   encN = 3;  /* actual N = 4 */
   t = 1;
-  sz = acsSz(encN, 0, MAX_PHASES);
-  a = (struct acs *)calloc(1, sz);
+  sz = bkr94acsSz(encN, 0, MAX_PHASES);
+  a = (struct bkr94acs *)calloc(1, sz);
   if (!a) {
-    check("alloc acs instance", 0);
+    check("alloc bkr94acs instance", 0);
     return;
   }
-  acsInit(a, encN, t, 0, MAX_PHASES, 0, testCoin, 0);
+  bkr94acsInit(a, encN, t, 0, MAX_PHASES, 0, testCoin, 0);
 
   N = (unsigned int)encN + 1;
 
@@ -795,12 +798,12 @@ testPostDecideContinuation(
    * returned zero because of the "already decided" short-circuit.
    */
   value = 1;
-  nacts = acsConsensusInput(a, 0, 0, 1, BRACHA87_INITIAL, 1, value, acts);
+  nacts = bkr94acsConsensusInput(a, 0, 0, 1, BRACHA87_INITIAL, 1, value, acts);
   check("post-decide input produces output", nacts > 0);
 
   nEcho = 0;
   for (k = 0; k < nacts; ++k) {
-    if (acts[k].act == ACS_ACT_CON_SEND
+    if (acts[k].act == BKR94ACS_ACT_CON_SEND
      && acts[k].origin == 0
      && acts[k].conType == BRACHA87_ECHO)
       ++nEcho;
@@ -827,19 +830,19 @@ testPostDecideContinuation(
         for (from = 0; from < N; ++from) {
           unsigned int kk;
 
-          nacts = acsConsensusInput(a, 0, 0, broadcaster,
-                                    type, from, value, acts);
+          nacts = bkr94acsConsensusInput(a, 0, 0, broadcaster,
+                                         type, from, value, acts);
           for (kk = 0; kk < nacts; ++kk) {
             /*
              * A post-decide CON_SEND with round > 0 proves Fig4Round
              * fired in the already-decided else branch and emitted
              * a continuation broadcast.
              */
-            if (acts[kk].act == ACS_ACT_CON_SEND
+            if (acts[kk].act == BKR94ACS_ACT_CON_SEND
              && acts[kk].round > 0)
               hasPostDecideBroadcast = 1;
             /* BA_DECIDED must not re-fire for origin 0 */
-            if (acts[kk].act == ACS_ACT_BA_DECIDED
+            if (acts[kk].act == BKR94ACS_ACT_BA_DECIDED
              && acts[kk].origin == 0)
               check("no duplicate BA_DECIDED post-decide", 0);
           }
@@ -857,19 +860,20 @@ testPostDecideContinuation(
 /*------------------------------------------------------------------------*/
 /*  BKR94 Step 2 trigger regression test                                  */
 /*                                                                        */
-/*  Pre-fix, acsProposalInput counted Fig1 ACCEPTs and fired the vote-0   */
-/*  fanout when nAccepted reached n-t.  BKR94 Lemma 2 Part A case (i)     */
-/*  requires the step-2 trigger to be "2t+1 BAs terminated with output 1",*/
-/*  not "2t+1 Fig1 ACCEPTs" — these coincide only in benign runs and      */
-/*  diverge under asynchrony or Byzantine scheduling.                     */
+/*  Pre-fix, bkr94acsProposalInput counted Fig1 ACCEPTs and fired the     */
+/*  vote-0 fanout when nAccepted reached n-t.  BKR94 Lemma 2 Part A       */
+/*  case (i) requires the step-2 trigger to be "2t+1 BAs terminated with  */
+/*  output 1", not "2t+1 Fig1 ACCEPTs" — these coincide only in benign    */
+/*  runs and diverge under asynchrony or Byzantine scheduling.            */
 /*                                                                        */
 /*  This test pins the corrected semantics by driving all N Fig1          */
-/*  instances to ACCEPT on a single peer via acsProposalInput and         */
+/*  instances to ACCEPT on a single peer via bkr94acsProposalInput and    */
 /*  asserting:                                                            */
 /*    - a->threshold stays 0 after each accept (step 2 not fired),        */
-/*    - no ACS_ACT_CON_SEND with conValue=0 comes out of the proposal     */
-/*      path (no vote-0 fanout),                                          */
-/*    - voted[j] == ACS_VOTE_ONE for every j (step 1 fired per accept).   */
+/*    - no BKR94ACS_ACT_CON_SEND with conValue=0 comes out of the         */
+/*      proposal path (no vote-0 fanout),                                 */
+/*    - voted[j] == BKR94ACS_VOTE_ONE for every j (step 1 fired per       */
+/*      accept).                                                          */
 /*                                                                        */
 /*  With the pre-fix code the (n-t)th accept would flip threshold to 1    */
 /*  and emit a burst of vote-0 CON_SEND actions.                          */
@@ -879,9 +883,9 @@ static void
 testStepTwoTrigger(
   void
 ){
-  struct acs *a;
+  struct bkr94acs *a;
   unsigned long sz;
-  struct acsAct acts[ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
+  struct bkr94acsAct acts[BKR94ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
   unsigned int nacts;
   unsigned int k;
   unsigned int N;
@@ -894,20 +898,20 @@ testStepTwoTrigger(
   unsigned char from;
   const unsigned char *voted;
 
-  printf("\nACS — BKR94 Step 2 trigger regression\n");
+  printf("\nBKR94 ACS — Step 2 trigger regression\n");
 
   encN = 3;  /* actual N = 4, n-t threshold = 3 */
   t = 1;
   N = (unsigned int)encN + 1;
   val = 'x';
 
-  sz = acsSz(encN, 0, MAX_PHASES);
-  a = (struct acs *)calloc(1, sz);
+  sz = bkr94acsSz(encN, 0, MAX_PHASES);
+  a = (struct bkr94acs *)calloc(1, sz);
   if (!a) {
-    check("alloc acs instance", 0);
+    check("alloc bkr94acs instance", 0);
     return;
   }
-  acsInit(a, encN, t, 0, MAX_PHASES, 0, testCoin, 0);
+  bkr94acsInit(a, encN, t, 0, MAX_PHASES, 0, testCoin, 0);
 
   voteZeroSeen = 0;
   voteOneSeen = 0;
@@ -915,33 +919,34 @@ testStepTwoTrigger(
   /*
    * Drive each Fig1 instance to ACCEPT on this peer:
    *   INITIAL from origin + ECHO from every peer + READY from every
-   *   peer.  The READY cascade crosses 2t+1 inside acsProposalInput
-   *   and fires ACS_ACT_CON_SEND (vote-1, step 1).
+   *   peer.  The READY cascade crosses 2t+1 inside
+   *   bkr94acsProposalInput and fires BKR94ACS_ACT_CON_SEND
+   *   (vote-1, step 1).
    */
   for (origin = 0; origin < N; ++origin) {
-    nacts = acsProposalInput(a, (unsigned char)origin, BRACHA87_INITIAL,
-                             (unsigned char)origin, &val, acts);
+    nacts = bkr94acsProposalInput(a, (unsigned char)origin, BRACHA87_INITIAL,
+                                  (unsigned char)origin, &val, acts);
     for (k = 0; k < nacts; ++k)
-      if (acts[k].act == ACS_ACT_CON_SEND) {
+      if (acts[k].act == BKR94ACS_ACT_CON_SEND) {
         if (acts[k].conValue == 0) ++voteZeroSeen;
         else                       ++voteOneSeen;
       }
 
     for (from = 0; from < N; ++from) {
-      nacts = acsProposalInput(a, (unsigned char)origin, BRACHA87_ECHO,
-                               from, &val, acts);
+      nacts = bkr94acsProposalInput(a, (unsigned char)origin, BRACHA87_ECHO,
+                                    from, &val, acts);
       for (k = 0; k < nacts; ++k)
-        if (acts[k].act == ACS_ACT_CON_SEND) {
+        if (acts[k].act == BKR94ACS_ACT_CON_SEND) {
           if (acts[k].conValue == 0) ++voteZeroSeen;
           else                       ++voteOneSeen;
         }
     }
 
     for (from = 0; from < N; ++from) {
-      nacts = acsProposalInput(a, (unsigned char)origin, BRACHA87_READY,
-                               from, &val, acts);
+      nacts = bkr94acsProposalInput(a, (unsigned char)origin, BRACHA87_READY,
+                                    from, &val, acts);
       for (k = 0; k < nacts; ++k)
-        if (acts[k].act == ACS_ACT_CON_SEND) {
+        if (acts[k].act == BKR94ACS_ACT_CON_SEND) {
           if (acts[k].conValue == 0) ++voteZeroSeen;
           else                       ++voteOneSeen;
         }
@@ -959,8 +964,8 @@ testStepTwoTrigger(
   check("vote-1 emitted for every accepted origin", voteOneSeen == N);
 
   /*
-   * voted[] layout: first N bytes of a->data (see acsVoted in
-   * acs.c).  ACS_VOTE_ONE is the internal sentinel value 1.
+   * voted[] layout: first N bytes of a->data (see bkr94acsVoted in
+   * bkr94acs.c).  BKR94ACS_VOTE_ONE is the internal sentinel value 1.
    */
   voted = a->data;
   for (origin = 0; origin < N; ++origin)
@@ -978,8 +983,8 @@ int
 main(
   void
 ){
-  printf("acs test suite\n");
-  printf("==============\n\n");
+  printf("bkr94acs test suite\n");
+  printf("===================\n\n");
 
   MsgQ = (struct msg *)calloc(MAX_MSGS, sizeof (struct msg));
   if (!MsgQ) {
@@ -998,7 +1003,7 @@ main(
 
   free(MsgQ);
 
-  printf("\n==============\n");
+  printf("\n===================\n");
   if (Fail) {
     printf("%d FAILED\n", Fail);
     return (1);

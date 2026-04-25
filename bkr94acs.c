@@ -1,15 +1,15 @@
 /*
- * BrachaAsynchronousByzantineAgreementProtocols - Asynchronous Common Subset
+ * asynchronousByzantineAgreementProtocols - BKR94 Asynchronous Common Subset
  * Copyright (C) 2026 G. David Butler <gdb@dbSystems.com>
  *
- * This file is part of BrachaAsynchronousByzantineAgreementProtocols
+ * This file is part of asynchronousByzantineAgreementProtocols
  *
- * BrachaAsynchronousByzantineAgreementProtocols is free software: you can
+ * asynchronousByzantineAgreementProtocols is free software: you can
  * redistribute it and/or modify it under the terms of the GNU Lesser General
  * Public License as published by the Free Software Foundation, either
  * version 3 of the License, or (at your option) any later version.
  *
- * BrachaAsynchronousByzantineAgreementProtocols is distributed in the hope
+ * asynchronousByzantineAgreementProtocols is distributed in the hope
  * that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
  * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Lesser General Public License for more details.
@@ -19,25 +19,27 @@
  */
 
 /*
- * Asynchronous Common Subset — BKR94 Protocol Agreement[Q].
+ * BKR94 Asynchronous Common Subset — Protocol Agreement[Q].
  *
- * Direct implementation of Ben-Or/Kelmer/Rabin 1994 Section 4
- * Figure 3.  See BKR94ACS.txt for the paper extract this file is
- * aligned to.  Composes N Bracha87 Fig1 instances (proposal reliable
- * broadcast supplying Q) with N Bracha87 Fig4 instances (binary
- * consensus on inclusion — the BKR94 "BA" subprotocol).
+ * This file is BKR94 Section 4 Figure 3.  Direct line-by-line port
+ * of Ben-Or/Kelmer/Rabin 1994; see BKR94ACS.txt for the paper
+ * extract used as the spec.  Composes N Bracha87 Fig1 instances
+ * (proposal reliable broadcast supplying Q) with N Bracha87 Fig4
+ * instances (binary consensus on inclusion — the BKR94 "BA"
+ * subprotocol).
  *
- * Step 1 lives in acsProposalInput (vote 1 on Fig1 ACCEPT).
- * Step 2 lives in acsConsensusInput (vote 0 fanout when the
+ * Step 1 lives in bkr94acsProposalInput (vote 1 on Fig1 ACCEPT).
+ * Step 2 lives in bkr94acsConsensusInput (vote 0 fanout when the
  *   2t+1-BAs-with-output-1 threshold hits inside the Fig4Round
  *   DECIDE branch).
- * Step 3 lives in acsConsensusInput (ACS_ACT_COMPLETE when all N
- *   BAs have decided) and acsSubset (SubSet = { j : BA_j = 1 }).
+ * Step 3 lives in bkr94acsConsensusInput (BKR94ACS_ACT_COMPLETE
+ *   when all N BAs have decided) and bkr94acsSubset
+ *   (SubSet = { j : BA_j = 1 }).
  */
 
 #include <assert.h>
 #include <string.h>
-#include "acs.h"
+#include "bkr94acs.h"
 
 #define A_N(a) ((unsigned int)(a)->n + 1)
 
@@ -45,12 +47,12 @@
  * Pointer alignment for carving Fig1/Fig4 instances out of a single
  * buffer.  bracha87Fig4 begins with function-pointer fields, and
  * bracha87Fig1 begins with 2-byte shorts; rounding up to pointer
- * alignment subsumes both.  struct acs.pad[7] pairs with this to
- * place a->data at a pointer-aligned offset from a.
+ * alignment subsumes both.  struct bkr94acs.pad[7] pairs with this
+ * to place a->data at a pointer-aligned offset from a.
  */
-#define ACS_ALIGN_P  ((unsigned long)sizeof (void *))
-#define ACS_ALIGN_UP(x)  (((unsigned long)(x) + ACS_ALIGN_P - 1) \
-                         & ~(ACS_ALIGN_P - 1))
+#define BKR94ACS_ALIGN_P  ((unsigned long)sizeof (void *))
+#define BKR94ACS_ALIGN_UP(x)  (((unsigned long)(x) + BKR94ACS_ALIGN_P - 1) \
+                               & ~(BKR94ACS_ALIGN_P - 1))
 
 /*------------------------------------------------------------------------*/
 /*  Internal layout helpers                                               */
@@ -66,35 +68,35 @@
 /*------------------------------------------------------------------------*/
 
 /* Per-origin vote status */
-#define ACS_VOTE_NONE 0
-#define ACS_VOTE_ONE  1
-#define ACS_VOTE_ZERO 2
+#define BKR94ACS_VOTE_NONE 0
+#define BKR94ACS_VOTE_ONE  1
+#define BKR94ACS_VOTE_ZERO 2
 
 /*
- * All layout helpers take const struct acs * — they only read the
- * header fields n/vLen/maxPhases to compute offsets.  Callers that
- * need to write through the returned pointer cast away const.  This
- * lets the read-only query functions (acsSubset, acsProposalValue)
- * stay const-correct.
+ * All layout helpers take const struct bkr94acs * — they only read
+ * the header fields n/vLen/maxPhases to compute offsets.  Callers
+ * that need to write through the returned pointer cast away const.
+ * This lets the read-only query functions (bkr94acsSubset,
+ * bkr94acsProposalValue) stay const-correct.
  */
 
 static unsigned char *
-acsVoted(
-  const struct acs *a
+bkr94acsVoted(
+  const struct bkr94acs *a
 ){
   return ((unsigned char *)a->data);
 }
 
 static unsigned char *
-acsDecision(
-  const struct acs *a
+bkr94acsDecision(
+  const struct bkr94acs *a
 ){
   return ((unsigned char *)a->data + A_N(a));
 }
 
 static unsigned char *
-acsConNextRound(
-  const struct acs *a
+bkr94acsConNextRound(
+  const struct bkr94acs *a
 ){
   return ((unsigned char *)a->data + 2 * A_N(a));
 }
@@ -105,35 +107,35 @@ acsConNextRound(
  */
 static unsigned long
 headerSz(
-  const struct acs *a
+  const struct bkr94acs *a
 ){
-  return (ACS_ALIGN_UP(3UL * A_N(a)));
+  return (BKR94ACS_ALIGN_UP(3UL * A_N(a)));
 }
 
 static unsigned long
 propF1Sz(
-  const struct acs *a
+  const struct bkr94acs *a
 ){
-  return (ACS_ALIGN_UP(bracha87Fig1Sz(a->n, a->vLen)));
+  return (BKR94ACS_ALIGN_UP(bracha87Fig1Sz(a->n, a->vLen)));
 }
 
 static unsigned long
 conF1Sz(
-  const struct acs *a
+  const struct bkr94acs *a
 ){
-  return (ACS_ALIGN_UP(bracha87Fig1Sz(a->n, 0)));
+  return (BKR94ACS_ALIGN_UP(bracha87Fig1Sz(a->n, 0)));
 }
 
 static unsigned long
 fig4Sz(
-  const struct acs *a
+  const struct bkr94acs *a
 ){
-  return (ACS_ALIGN_UP(bracha87Fig4Sz(a->n, a->maxPhases)));
+  return (BKR94ACS_ALIGN_UP(bracha87Fig4Sz(a->n, a->maxPhases)));
 }
 
 static unsigned int
 maxRounds(
-  const struct acs *a
+  const struct bkr94acs *a
 ){
   return ((unsigned int)a->maxPhases * 3);
 }
@@ -141,7 +143,7 @@ maxRounds(
 /* Base of proposal Fig1 area */
 static unsigned char *
 propF1Base(
-  const struct acs *a
+  const struct bkr94acs *a
 ){
   return ((unsigned char *)a->data + headerSz(a));
 }
@@ -149,7 +151,7 @@ propF1Base(
 /* Proposal Fig1 instance for origin j */
 static struct bracha87Fig1 *
 propF1(
-  const struct acs *a
+  const struct bkr94acs *a
  ,unsigned int j
 ){
   return ((struct bracha87Fig1 *)(propF1Base(a) + j * propF1Sz(a)));
@@ -158,7 +160,7 @@ propF1(
 /* Base of consensus pipeline area */
 static unsigned char *
 conBase(
-  const struct acs *a
+  const struct bkr94acs *a
 ){
   return (propF1Base(a) + A_N(a) * propF1Sz(a));
 }
@@ -166,7 +168,7 @@ conBase(
 /* Size of one consensus pipeline (for origin j) */
 static unsigned long
 conPipelineSz(
-  const struct acs *a
+  const struct bkr94acs *a
 ){
   return ((unsigned long)maxRounds(a) * A_N(a) * conF1Sz(a) + fig4Sz(a));
 }
@@ -174,7 +176,7 @@ conPipelineSz(
 /* Consensus Fig1 instance for origin j, round r, broadcaster k */
 static struct bracha87Fig1 *
 conF1(
-  const struct acs *a
+  const struct bkr94acs *a
  ,unsigned int j
  ,unsigned int r
  ,unsigned int k
@@ -189,7 +191,7 @@ conF1(
 /* Consensus Fig4 instance for origin j */
 static struct bracha87Fig4 *
 conF4(
-  const struct acs *a
+  const struct bkr94acs *a
  ,unsigned int j
 ){
   unsigned char *base;
@@ -205,7 +207,7 @@ conF4(
 /*------------------------------------------------------------------------*/
 
 unsigned long
-acsSz(
+bkr94acsSz(
   unsigned int n
  ,unsigned int vLen
  ,unsigned int maxPhases
@@ -228,22 +230,22 @@ acsSz(
     return (0);
 
   N = n + 1;
-  pf1 = ACS_ALIGN_UP(bracha87Fig1Sz(n, vLen));
-  cf1 = ACS_ALIGN_UP(bracha87Fig1Sz(n, 0));
-  f4 = ACS_ALIGN_UP(bracha87Fig4Sz(n, maxPhases));
+  pf1 = BKR94ACS_ALIGN_UP(bracha87Fig1Sz(n, vLen));
+  cf1 = BKR94ACS_ALIGN_UP(bracha87Fig1Sz(n, 0));
+  f4 = BKR94ACS_ALIGN_UP(bracha87Fig4Sz(n, maxPhases));
   mr = (unsigned long)maxPhases * 3;
-  hdr = ACS_ALIGN_UP(3UL * N);
+  hdr = BKR94ACS_ALIGN_UP(3UL * N);
   conPipe = mr * N * cf1 + f4;
 
-  return (sizeof (struct acs) - 1
+  return (sizeof (struct bkr94acs) - 1
     + hdr                      /* voted + baDecision + conNextRound + pad */
     + N * pf1                  /* proposal Fig1 instances */
     + N * conPipe);            /* consensus pipelines */
 }
 
 void
-acsInit(
-  struct acs *a
+bkr94acsInit(
+  struct bkr94acs *a
  ,unsigned char n
  ,unsigned char t
  ,unsigned char vLen
@@ -258,12 +260,12 @@ acsInit(
   unsigned int r;
 
   /*
-   * Validate caller contract.  acsSz rejects the same out-of-range
-   * maxPhases by returning 0; if acsInit proceeded past these checks
-   * it would memcpy into fields beyond the allocation and the Fig4
-   * step 3 path would crash on the missing coin.  Bracha also
-   * requires actual_N > 3t (asserted in each Fig*Init below, but
-   * checking here gives a cleaner failure mode).
+   * Validate caller contract.  bkr94acsSz rejects the same
+   * out-of-range maxPhases by returning 0; if bkr94acsInit proceeded
+   * past these checks it would memcpy into fields beyond the
+   * allocation and the Fig4 step 3 path would crash on the missing
+   * coin.  Bracha also requires actual_N > 3t (asserted in each
+   * Fig*Init below, but checking here gives a cleaner failure mode).
    */
   if (!coin)
     return;
@@ -271,7 +273,7 @@ acsInit(
     return;
   assert((unsigned int)n + 1 > 3u * (unsigned int)t);
 
-  memset(a, 0, acsSz(n, vLen, maxPhases));
+  memset(a, 0, bkr94acsSz(n, vLen, maxPhases));
   a->n = n;
   a->t = t;
   a->vLen = vLen;
@@ -281,7 +283,7 @@ acsInit(
   N = (unsigned int)n + 1;
 
   /* Mark all BA decisions as undecided */
-  memset(acsDecision(a), 0xFF, N);
+  memset(bkr94acsDecision(a), 0xFF, N);
 
   /* Initialize proposal Fig1 instances */
   for (i = 0; i < N; ++i)
@@ -312,26 +314,26 @@ acsInit(
  * from step 2), step 1 and step 2 stop touching it — BA semantics
  * demand a single input per player."  First caller wins.
  *
- * Returns number of ACS_ACT_CON_SEND actions added (0 if already
- * voted, 1 otherwise).
+ * Returns number of BKR94ACS_ACT_CON_SEND actions added (0 if
+ * already voted, 1 otherwise).
  */
 static unsigned int
-acsVote(
-  struct acs *a
+bkr94acsVote(
+  struct bkr94acs *a
  ,unsigned int origin
  ,unsigned char vote
- ,struct acsAct *out
+ ,struct bkr94acsAct *out
 ){
   unsigned char *voted;
 
-  voted = acsVoted(a);
-  if (voted[origin] != ACS_VOTE_NONE)
+  voted = bkr94acsVoted(a);
+  if (voted[origin] != BKR94ACS_VOTE_NONE)
     return (0);
 
-  voted[origin] = vote ? ACS_VOTE_ONE : ACS_VOTE_ZERO;
+  voted[origin] = vote ? BKR94ACS_VOTE_ONE : BKR94ACS_VOTE_ZERO;
 
   /* Initial broadcast of our BA input to all peers */
-  out->act = ACS_ACT_CON_SEND;
+  out->act = BKR94ACS_ACT_CON_SEND;
   out->origin = (unsigned char)origin;
   out->round = 0;
   out->conType = BRACHA87_INITIAL;
@@ -341,13 +343,13 @@ acsVote(
 }
 
 unsigned int
-acsProposalInput(
-  struct acs *a
+bkr94acsProposalInput(
+  struct bkr94acs *a
  ,unsigned char origin
  ,unsigned char type
  ,unsigned char from
  ,const unsigned char *value
- ,struct acsAct *out
+ ,struct bkr94acsAct *out
 ){
   struct bracha87Fig1 *f1;
   unsigned char f1out[3];
@@ -364,15 +366,15 @@ acsProposalInput(
    * some BAs and depend on THIS peer's continued Fig1 echoes and
    * readys to reach their own n-t thresholds.  Bracha requires
    * post-decide continuation at the BA level (pitfall #1); the
-   * same obligation applies at the ACS level — a locally-complete
-   * peer must keep participating until the application decides to
-   * exit (e.g. progress-silence quorum).  A blanket complete-guard
-   * causes classic post-decide stalls where the fastest peer
-   * strands the slowest.  The per-action emission blocks below
-   * (BA_DECIDED on Fig4 DECIDE, COMPLETE on nDecided crossing N,
-   * votes via acsVote's voted-state dedup) are idempotent, so
-   * continuing after complete cannot emit duplicate terminal
-   * actions.
+   * same obligation applies at the BKR94 ACS level — a
+   * locally-complete peer must keep participating until the
+   * application decides to exit (e.g. progress-silence quorum).
+   * A blanket complete-guard causes classic post-decide stalls
+   * where the fastest peer strands the slowest.  The per-action
+   * emission blocks below (BA_DECIDED on Fig4 DECIDE, COMPLETE on
+   * nDecided crossing N, votes via bkr94acsVote's voted-state
+   * dedup) are idempotent, so continuing after complete cannot
+   * emit duplicate terminal actions.
    */
   if (!a || origin > a->n || from > a->n || !value || !out)
     return (0);
@@ -383,14 +385,14 @@ acsProposalInput(
 
   for (k = 0; k < nf1; ++k) {
     if (f1out[k] == BRACHA87_ECHO_ALL) {
-      out[nact].act = ACS_ACT_PROP_ECHO;
+      out[nact].act = BKR94ACS_ACT_PROP_ECHO;
       out[nact].origin = origin;
       out[nact].round = 0;
       out[nact].conType = 0;
       out[nact].conValue = 0;
       ++nact;
     } else if (f1out[k] == BRACHA87_READY_ALL) {
-      out[nact].act = ACS_ACT_PROP_READY;
+      out[nact].act = BKR94ACS_ACT_PROP_READY;
       out[nact].origin = origin;
       out[nact].round = 0;
       out[nact].conType = 0;
@@ -408,7 +410,7 @@ acsProposalInput(
        * every honest eventually learns Q(j) for every j.
        *
        * Step 2's "n-t BAs with output 1" trigger is NOT here; it
-       * fires in acsConsensusInput's DECIDE branch.  Triggering
+       * fires in bkr94acsConsensusInput's DECIDE branch.  Triggering
        * vote-0 on n-t Fig1 ACCEPTs instead (a HoneyBadger-style
        * optimization) would be the wrong reading of the paper:
        * Part A case (i) of the Lemma 2 proof requires the
@@ -418,7 +420,7 @@ acsProposalInput(
        * validity axiom (which promises output b only when all
        * correct inputs are b, not when a quorum are).
        */
-      nact += acsVote(a, origin, 1, &out[nact]);
+      nact += bkr94acsVote(a, origin, 1, &out[nact]);
     }
   }
 
@@ -426,15 +428,15 @@ acsProposalInput(
 }
 
 unsigned int
-acsConsensusInput(
-  struct acs *a
+bkr94acsConsensusInput(
+  struct bkr94acs *a
  ,unsigned char origin
  ,unsigned char round
  ,unsigned char broadcaster
  ,unsigned char type
  ,unsigned char from
  ,unsigned char value
- ,struct acsAct *out
+ ,struct bkr94acsAct *out
 ){
   unsigned char *pipe;
   unsigned long cf1sz;
@@ -459,11 +461,12 @@ acsConsensusInput(
    * Two intentional non-short-circuits — both are Bracha post-decide
    * continuation (pitfall #1) applied at different layers.
    *
-   * 1. We do NOT short-circuit on acsDecision[origin] != 0xFF.  Bracha
-   *    Fig4 requires a decided process to continue broadcasting so
-   *    peers lagging in THIS BA can reach n-t validated and decide.
-   *    The ACS_ACT_BA_DECIDED emission is gated by Fig4Round returning
-   *    DECIDE, which fires exactly once per BA, so idempotence holds.
+   * 1. We do NOT short-circuit on bkr94acsDecision[origin] != 0xFF.
+   *    Bracha Fig4 requires a decided process to continue
+   *    broadcasting so peers lagging in THIS BA can reach n-t
+   *    validated and decide.  The BKR94ACS_ACT_BA_DECIDED emission
+   *    is gated by Fig4Round returning DECIDE, which fires exactly
+   *    once per BA, so idempotence holds.
    *
    * 2. We do NOT short-circuit on a->complete.  A locally-complete
    *    peer has decided all N BAs but other peers may still be
@@ -471,10 +474,11 @@ acsConsensusInput(
    *    round_Y, broadcaster_THIS) wait on THIS peer's continued
    *    echoes and readys to cross n-t thresholds.  Dropping inputs
    *    after local complete strands lagging peers — a classic
-   *    post-decide stall.  ACS_ACT_COMPLETE emission is gated by
-   *    nDecided crossing N, which happens once; continuing past
-   *    complete cannot emit a second ACS_ACT_COMPLETE.  Application
-   *    exit is a separate concern (see progress-silence quorum).
+   *    post-decide stall.  BKR94ACS_ACT_COMPLETE emission is gated
+   *    by nDecided crossing N, which happens once; continuing past
+   *    complete cannot emit a second BKR94ACS_ACT_COMPLETE.
+   *    Application exit is a separate concern (see progress-silence
+   *    quorum).
    */
 
   /* Compute pipeline base once — avoids redundant external calls */
@@ -487,7 +491,7 @@ acsConsensusInput(
     + ((unsigned long)round * N + broadcaster) * cf1sz);
   f4 = (struct bracha87Fig4 *)(pipe + f4off);
   f3 = (struct bracha87Fig3 *)f4->data;
-  nextRound = &acsConNextRound(a)[origin];
+  nextRound = &bkr94acsConNextRound(a)[origin];
   nact = 0;
 
   nf1 = bracha87Fig1Input(f1, type, from, &value, f1out);
@@ -506,7 +510,7 @@ acsConsensusInput(
 
       /*
        * Check for completed rounds (including cascades).
-       * Same pattern as consensus.c.
+       * Same pattern as example/bracha87.c.
        */
       while (*nextRound < mr
           && bracha87Fig3RoundComplete(f3, *nextRound)) {
@@ -520,8 +524,8 @@ acsConsensusInput(
         ++*nextRound;
 
         if (act & BRACHA87_DECIDE) {
-          acsDecision(a)[origin] = f4->decision;
-          out[nact].act = ACS_ACT_BA_DECIDED;
+          bkr94acsDecision(a)[origin] = f4->decision;
+          out[nact].act = BKR94ACS_ACT_BA_DECIDED;
           out[nact].origin = origin;
           out[nact].round = 0;
           out[nact].conType = 0;
@@ -543,7 +547,7 @@ acsConsensusInput(
            * step 2 precondition.
            *
            * Guarded by !threshold so the vote-0 fanout fires at most
-           * once per ACS instance.
+           * once per BKR94 ACS instance.
            */
           if (f4->decision == 1 && !a->threshold) {
             ++a->nDecidedOne;
@@ -552,7 +556,7 @@ acsConsensusInput(
 
               a->threshold = 1;
               for (j = 0; j < A_N(a); ++j)
-                nact += acsVote(a, j, 0, &out[nact]);
+                nact += bkr94acsVote(a, j, 0, &out[nact]);
             }
           }
 
@@ -561,14 +565,14 @@ acsConsensusInput(
            * SubSet_i be the set of indices j for which BA_j had
            * output 1.  Output SubSet_i."
            *
-           * We emit ACS_ACT_COMPLETE once when nDecided reaches N.
-           * acsSubset implements the "j for which BA_j had output 1"
-           * read.  Part C of the proof (BA agreement) guarantees
-           * every honest peer computes the same SubSet.
+           * We emit BKR94ACS_ACT_COMPLETE once when nDecided reaches
+           * N.  bkr94acsSubset implements the "j for which BA_j had
+           * output 1" read.  Part C of the proof (BA agreement)
+           * guarantees every honest peer computes the same SubSet.
            */
           if (a->nDecided >= A_N(a)) {
             a->complete = 1;
-            out[nact].act = ACS_ACT_COMPLETE;
+            out[nact].act = BKR94ACS_ACT_COMPLETE;
             out[nact].origin = 0;
             out[nact].round = 0;
             out[nact].conType = 0;
@@ -581,7 +585,7 @@ acsConsensusInput(
         if ((act & BRACHA87_BROADCAST)
          && *nextRound < mr) {
           /* Broadcast INITIAL for the new consensus round (self is broadcaster) */
-          out[nact].act = ACS_ACT_CON_SEND;
+          out[nact].act = BKR94ACS_ACT_CON_SEND;
           out[nact].origin = origin;
           out[nact].round = *nextRound;
           out[nact].conType = BRACHA87_INITIAL;
@@ -601,7 +605,7 @@ acsConsensusInput(
       if (!cv)
         continue;
 
-      out[nact].act = ACS_ACT_CON_SEND;
+      out[nact].act = BKR94ACS_ACT_CON_SEND;
       out[nact].origin = origin;
       out[nact].round = round;
       out[nact].conType = (f1out[k] == BRACHA87_ECHO_ALL)
@@ -616,8 +620,8 @@ acsConsensusInput(
 }
 
 int
-acsComplete(
-  const struct acs *a
+bkr94acsComplete(
+  const struct bkr94acs *a
 ){
   if (!a)
     return (0);
@@ -625,8 +629,8 @@ acsComplete(
 }
 
 unsigned int
-acsSubset(
-  const struct acs *a
+bkr94acsSubset(
+  const struct bkr94acs *a
  ,unsigned char *origins
 ){
   unsigned int cnt;
@@ -640,11 +644,11 @@ acsSubset(
    * BKR94 Step 3 read: SubSet_i = { j : BA_j had output 1 }.
    * Lemma 2 Part A gives |SubSet| >= 2t+1 = n-t; Part C gives
    * cross-peer agreement on SubSet; Part D gives Q(j)=1 for every
-   * j in SubSet.  Caller must gate this on acsComplete() to observe
-   * the final subset; a mid-run read reports the partial set of
-   * decided-1 origins.
+   * j in SubSet.  Caller must gate this on bkr94acsComplete() to
+   * observe the final subset; a mid-run read reports the partial
+   * set of decided-1 origins.
    */
-  dec = acsDecision(a);
+  dec = bkr94acsDecision(a);
   cnt = 0;
   for (i = 0; i < A_N(a); ++i) {
     if (dec[i] == 1)
@@ -654,8 +658,8 @@ acsSubset(
 }
 
 const unsigned char *
-acsProposalValue(
-  const struct acs *a
+bkr94acsProposalValue(
+  const struct bkr94acs *a
  ,unsigned char origin
 ){
   if (!a || origin > a->n)

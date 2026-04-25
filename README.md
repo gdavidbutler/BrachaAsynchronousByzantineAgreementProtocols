@@ -1,6 +1,6 @@
-# BrachaAsynchronousByzantineAgreementProtocols
+# asynchronousByzantineAgreementProtocols
 
-A C library implementing all four figures of Gabriel Bracha's 1987 paper as composable pure state machines, plus the Asynchronous Common Subset (ACS) protocol built from them.
+A C library implementing all four figures of Gabriel Bracha's 1987 paper as composable pure state machines, plus the BKR94 Asynchronous Common Subset (ACS) protocol built from them.
 
 ## Overview
 
@@ -8,13 +8,17 @@ This is the only known implementation of all four figures of Bracha 1987 as comp
 
 Each module boundary matches the paper exactly, so the paper's proofs apply per-module: Lemmas 1-4 to Fig 1, Lemmas 5-7 to Fig 2/3, Lemmas 9-10 and Theorems 1-2 to Fig 4.
 
-The ACS module composes these figures into multi-value agreement: N peers propose arbitrary values, and all honest peers agree on the same common subset of at least n-t proposals. This is the BKR construction (Ben-Or, Kelmer, Rabin 1994).
+The `bkr94acs` module composes these figures into multi-value agreement: N peers propose arbitrary values, and all honest peers agree on the same common subset of at least n-t proposals. This is Ben-Or/Kelmer/Rabin 1994 Section 4 Figure 3 (Protocol Agreement[Q]).
 
-## The Paper
+## The Papers
 
-Gabriel Bracha, "Asynchronous Byzantine Agreement Protocols," *Information and Computation* 75, 130-143 (1987).
+Gabriel Bracha, "Asynchronous Byzantine Agreement Protocols," *Information and Computation* 75, 130-143 (1987). Implemented in `bracha87.[hc]`.
 
-`Bracha87.txt` is a companion summary of the paper: figures, rules, VALID set definitions, all lemma/theorem statements, and a mapping from each lemma to the test that verifies it.
+Michael Ben-Or, Boaz Kelmer, Tal Rabin, "Asynchronous Secure Computations with Optimal Resilience (Extended Abstract)," PODC '94, pages 183-192. Section 4 Figure 3 (Protocol Agreement[Q]) is implemented in `bkr94acs.[hc]`.
+
+`Bracha87.txt` is a companion summary of the Bracha 1987 paper: figures, rules, VALID set definitions, all lemma/theorem statements, and a mapping from each lemma to the test that verifies it.
+
+`BKR94ACS.txt` is the line-by-line extract of BKR94 Section 4 used as `bkr94acs.[hc]`'s reference.
 
 **Paper typo:** Fig. 1 says "(n+t)/2 (echo,v) messages" but the Lemma 1 proof says "more than (n+t)/2." The proof requires strict `>` for the pigeonhole argument to work. The code follows the proof, not the figure.
 
@@ -42,7 +46,7 @@ Without these guarantees, the protocol's safety and liveness proofs do not hold.
 message -> Fig1(n,t) -> accept -> Fig3(N) -> round complete -> Fig4(coin) -> decision
 ```
 
-### Asynchronous Common Subset (acs)
+### BKR94 Asynchronous Common Subset (bkr94acs)
 
 ```
 N proposals -> N Fig1(n,t,vLen) -> accept -> vote 1 in BA
@@ -74,17 +78,17 @@ Three rounds per phase. Embeds a Fig 3 instance internally. Parameterized by a c
 
 Decided processes continue participating so others can reach consensus. The protocol decides in expected O(1) phases with a random coin.
 
-### ACS -- Asynchronous Common Subset
+### bkr94acs -- BKR94 Asynchronous Common Subset
 
-Composes Fig 1 and Fig 4 into multi-value agreement using the BKR construction (Ben-Or, Kelmer, Rabin 1994). See `BKR94ACS.txt` for the line-by-line extract used as the implementation's reference.
+Composes Bracha87 Fig 1 and Fig 4 into multi-value agreement, implementing Ben-Or/Kelmer/Rabin 1994 Section 4 Figure 3 (Protocol Agreement[Q]). See `BKR94ACS.txt` for the line-by-line extract used as the implementation's reference.
 
-Each of N peers proposes an arbitrary value (up to vLen+1 bytes). N Fig 1 instances reliably broadcast the proposals. N Fig 4 instances run binary consensus on "include this origin?" When a peer accepts origin j's proposal via Fig 1, it votes 1 in BA_j. When n-t BAs have *decided 1*, it votes 0 for every BA in which it has not yet voted. The common subset is {j : BA_j decided 1}, guaranteed to contain at least n-t origins.
+Each of N peers proposes an arbitrary value (up to vLen+1 bytes). N Bracha87 Fig 1 instances reliably broadcast the proposals. N Bracha87 Fig 4 instances run binary consensus on "include this origin?" When a peer accepts origin j's proposal via Fig 1, it votes 1 in BA_j. When n-t BAs have *decided 1*, it votes 0 for every BA in which it has not yet voted. The common subset is {j : BA_j decided 1}, guaranteed to contain at least n-t origins.
 
 The step-2 trigger is "n-t BAs decided with output 1," not "n-t Fig 1 ACCEPTs." The two coincide in benign runs but diverge under asynchrony or Byzantine scheduling, and only the decide-1 trigger satisfies Part A case (i) of the BKR94 Lemma 2 proof.
 
 Two message classes flow on the network: proposal messages (Fig 1 carrying arbitrary values) and consensus messages (Fig 1 carrying binary values for per-origin BA instances). Consensus messages are routed internally by (origin, round, broadcaster) -- the broadcaster identifies whose Fig 1 broadcast within a consensus round, distinct from the message sender.
 
-The ACS state machine knows its own peer index (self), which the bracha87 figures do not need. This is because ACS manages internal routing: when Fig 4 says BROADCAST, ACS must tag the outgoing INITIAL with self as the broadcaster.
+The bkr94acs state machine knows its own peer index (self), which the bracha87 figures do not need. This is because bkr94acs manages internal routing: when Fig 4 says BROADCAST, bkr94acs must tag the outgoing INITIAL with self as the broadcaster.
 
 ## API Overview
 
@@ -105,17 +109,17 @@ The ACS state machine knows its own peer index (self), which the bracha87 figure
 | `bracha87Fig4Init(...)` | Initialize with initial value, coin function, and closure |
 | `bracha87Fig4Round(f4, round, n_msgs, senders, values)` | Process a completed round; returns action bitmask |
 
-### ACS Entry Points
+### bkr94acs Entry Points
 
 | Function | Purpose |
 |---|---|
-| `acsSz(n, vLen, maxPhases)` | Compute allocation size for an ACS instance |
-| `acsInit(...)` | Initialize with peer index, coin function, and closure |
-| `acsProposalInput(acs, origin, type, from, value, out)` | Process a proposal broadcast message; returns action count |
-| `acsConsensusInput(acs, origin, round, broadcaster, type, from, value, out)` | Process a consensus message; returns action count |
-| `acsComplete(acs)` | Check if all N BAs have decided |
-| `acsSubset(acs, origins)` | Retrieve the decided common subset |
-| `acsProposalValue(acs, origin)` | Retrieve accepted proposal value for an origin |
+| `bkr94acsSz(n, vLen, maxPhases)` | Compute allocation size for a BKR94 ACS instance |
+| `bkr94acsInit(...)` | Initialize with peer index, coin function, and closure |
+| `bkr94acsProposalInput(acs, origin, type, from, value, out)` | Process a proposal broadcast message; returns action count |
+| `bkr94acsConsensusInput(acs, origin, round, broadcaster, type, from, value, out)` | Process a consensus message; returns action count |
+| `bkr94acsComplete(acs)` | Check if all N BAs have decided |
+| `bkr94acsSubset(acs, origins)` | Retrieve the decided common subset |
+| `bkr94acsProposalValue(acs, origin)` | Retrieve accepted proposal value for an origin |
 
 ### Caller Composition Pattern
 
@@ -189,22 +193,22 @@ make clean      # remove build artifacts
 make clobber    # remove all generated files
 ```
 
-The consensus example demonstrates binary consensus (Fig1+Fig3+Fig4):
+The bracha87 example demonstrates binary consensus (Fig1+Fig3+Fig4):
 
 ```bash
-./example_consensus 4 1                          # 4 peers, 1 Byzantine fault
-./example_consensus -s 42 7 2                    # shuffled delivery
-./example_consensus -b 3 7 2                     # Byzantine peer 0 equivocates
-./example_consensus -v 4 1 0 0 1 1              # verbose trace, split initial values
+./example_bracha87 4 1                          # 4 peers, 1 Byzantine fault
+./example_bracha87 -s 42 7 2                    # shuffled delivery
+./example_bracha87 -b 3 7 2                     # Byzantine peer 0 equivocates
+./example_bracha87 -v 4 1 0 0 1 1              # verbose trace, split initial values
 ```
 
-The ACS example demonstrates multi-value agreement on arbitrary strings:
+The bkr94acs example demonstrates multi-value agreement on arbitrary strings:
 
 ```bash
-./example_acs 4 1 joe sam sally tim      # 4 peers propose strings
-./example_acs -s 42 4 1 joe sam sally tim  # shuffled delivery (different subset)
-./example_acs 4 0 joe sam sally tim      # t=0: all proposals included
-./example_acs -v 7 2 alpha bravo charlie delta echo foxtrot golf
+./example_bkr94acs 4 1 joe sam sally tim      # 4 peers propose strings
+./example_bkr94acs -s 42 4 1 joe sam sally tim  # shuffled delivery (different subset)
+./example_bkr94acs 4 0 joe sam sally tim      # t=0: all proposals included
+./example_bkr94acs -v 7 2 alpha bravo charlie delta echo foxtrot golf
 ```
 
 Compiler flags: `-std=c89 -pedantic -Wall -Wextra -Os -g`
@@ -217,7 +221,7 @@ This library is protocol-only. A working deployment needs a transport layer sati
 
 A decided peer must keep broadcasting (Implementation Note 1) so others can reach consensus. Two obvious exit mechanisms are both wrong:
 
-- Exit on `ACS_ACT_COMPLETE` — violates post-decide continuation; peers deciding last can be stranded.
+- Exit on `BKR94ACS_ACT_COMPLETE` — violates post-decide continuation; peers deciding last can be stranded.
 - Broadcast a "DONE" message and exit on a threshold of receipts — the DONE has no retransmit siblings in the typical ledger model; loss of the initial emission strands peers that never hear it before early completers exit.
 
 The principled alternative is a **progress-silence quorum exit.** Each peer tracks the local tick at which every other peer last advanced its observable state (Fig 4 round, Fig 1 proposal/consensus phase transition, etc.). A peer whose state has not advanced for a chosen silence window is "done-silent." Exit when the local instance is complete AND at least `n-t-1` others are done-silent. The threshold is `n-t-1`, not `n-t` — self is implicit because completion is known locally. Using `n-t` is silently wrong at `t>0` and unreachable at `t=0`.

@@ -53,6 +53,6 @@ dkms.conf
 
 # Local Executables
 test_bracha87
-test_acs
-example_consensus
-example_acs
+test_bkr94acs
+example_bracha87
+example_bkr94acs

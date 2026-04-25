@@ -1,15 +1,15 @@
 /*
- * BrachaAsynchronousByzantineAgreementProtocols - Example ACS program
+ * asynchronousByzantineAgreementProtocols - Example BKR94 ACS program
  * Copyright (C) 2026 G. David Butler <gdb@dbSystems.com>
  *
- * This file is part of BrachaAsynchronousByzantineAgreementProtocols
+ * This file is part of asynchronousByzantineAgreementProtocols
  *
- * BrachaAsynchronousByzantineAgreementProtocols is free software: you can
+ * asynchronousByzantineAgreementProtocols is free software: you can
  * redistribute it and/or modify it under the terms of the GNU Lesser General
  * Public License as published by the Free Software Foundation, either
  * version 3 of the License, or (at your option) any later version.
  *
- * BrachaAsynchronousByzantineAgreementProtocols is distributed in the hope
+ * asynchronousByzantineAgreementProtocols is distributed in the hope
  * that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
  * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Lesser General Public License for more details.
@@ -19,28 +19,30 @@
  */
 
 /*
- * acs.c — Standalone demonstration of the Asynchronous Common Subset
- * protocol (BKR construction using Bracha's Figures 1 and 4).
+ * bkr94acs.c — Standalone demonstration of the BKR94 Asynchronous
+ * Common Subset protocol (Ben-Or/Kelmer/Rabin 1994 Section 4
+ * Figure 3, composing Bracha87 Figures 1 and 4).
  *
- * Each of N peers proposes a string value. The ACS protocol ensures
- * all honest peers agree on the same common subset of proposals
- * (at least n-t). The subset is then sorted deterministically so
- * every peer outputs the same ordering — the core of atomic broadcast.
+ * Each of N peers proposes a string value. The BKR94 ACS protocol
+ * ensures all honest peers agree on the same common subset of
+ * proposals (at least n-t). The subset is then sorted
+ * deterministically so every peer outputs the same ordering — the
+ * core of atomic broadcast.
  *
  * Build:
- *   (from project root) make example_acs
+ *   (from project root) make example_bkr94acs
  *
  * Usage:
- *   ./example_acs [-v] [-s seed] n t proposal0 proposal1 ...
+ *   ./example_bkr94acs [-v] [-s seed] n t proposal0 proposal1 ...
  *
  * Example:
- *   ./example_acs 4 1 joe sam sally tim
+ *   ./example_bkr94acs 4 1 joe sam sally tim
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "acs.h"
+#include "bkr94acs.h"
 
 /*------------------------------------------------------------------------*/
 /*  Constants                                                             */
@@ -54,12 +56,13 @@
 /*  Message queue — simulated network                                     */
 /*                                                                        */
 /*  Two message classes share one queue:                                   */
-/*    ACS_CLS_PROPOSAL  — Fig1 messages carrying proposal values          */
-/*    ACS_CLS_CONSENSUS — Fig1 messages for per-origin binary consensus   */
+/*    BKR94ACS_CLS_PROPOSAL  — Fig1 messages carrying proposal values      */
+/*    BKR94ACS_CLS_CONSENSUS — Fig1 messages for per-origin binary        */
+/*                             consensus                                  */
 /*------------------------------------------------------------------------*/
 
 struct msg {
-  unsigned char cls;         /* ACS_CLS_PROPOSAL or ACS_CLS_CONSENSUS */
+  unsigned char cls;         /* BKR94ACS_CLS_PROPOSAL or BKR94ACS_CLS_CONSENSUS */
   unsigned char origin;      /* which origin */
   unsigned char round;       /* consensus round (cls=CONSENSUS only) */
   unsigned char broadcaster; /* who initiated this Fig1 broadcast (CONSENSUS) */
@@ -204,8 +207,8 @@ main(
   unsigned int origSeed;
   unsigned int vLen;
 
-  /* Per-peer ACS state */
-  struct acs *peers[MAX_PEERS];
+  /* Per-peer BKR94 ACS state */
+  struct bkr94acs *peers[MAX_PEERS];
   unsigned long acsSize;
 
   /* Proposal strings */
@@ -278,28 +281,28 @@ main(
   }
 
   /*----------------------------------------------------------------------*/
-  /*  Allocate per-peer ACS state                                         */
+  /*  Allocate per-peer BKR94 ACS state                                   */
   /*----------------------------------------------------------------------*/
 
   /* vLen encoding: actual length = vLen, encoding = vLen - 1 */
-  acsSize = acsSz((unsigned int)(n - 1), (unsigned int)(vLen - 1), MAX_PHASES);
+  acsSize = bkr94acsSz((unsigned int)(n - 1), (unsigned int)(vLen - 1), MAX_PHASES);
 
   memset(peers, 0, sizeof (peers));
   for (i = 0; i < n; ++i) {
-    peers[i] = (struct acs *)calloc(1, acsSize);
+    peers[i] = (struct bkr94acs *)calloc(1, acsSize);
     if (!peers[i]) {
       fprintf(stderr, "allocation failed\n");
       exitCode = 1;
       goto cleanup;
     }
-    acsInit(peers[i], (unsigned char)(n - 1), (unsigned char)t,
-            (unsigned char)(vLen - 1), MAX_PHASES, (unsigned char)i,
-            demoCoin, 0);
+    bkr94acsInit(peers[i], (unsigned char)(n - 1), (unsigned char)t,
+                 (unsigned char)(vLen - 1), MAX_PHASES, (unsigned char)i,
+                 demoCoin, 0);
   }
 
   /*----------------------------------------------------------------------*/
   /*  Allocate message queue                                              */
-  /*  ACS generates more messages than plain consensus:                   */
+  /*  BKR94 ACS generates more messages than plain consensus:             */
   /*  N proposal broadcasts + N consensus pipelines, each with rounds.    */
   /*----------------------------------------------------------------------*/
 
@@ -315,7 +318,7 @@ main(
 
   for (i = 0; i < n; ++i)
     for (j = 0; j < n; ++j)
-      qPush(ACS_CLS_PROPOSAL, (unsigned char)i, 0, 0,
+      qPush(BKR94ACS_CLS_PROPOSAL, (unsigned char)i, 0, 0,
             BRACHA87_INITIAL, (unsigned char)i, (unsigned char)j,
             (const unsigned char *)proposals[i], vLen);
 
@@ -328,8 +331,8 @@ main(
 
   while (Qhead < Qtail) {
     struct msg *m;
-    struct acs *st;
-    struct acsAct acts[ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
+    struct bkr94acs *st;
+    struct bkr94acsAct acts[BKR94ACS_MAX_ACTS(MAX_PEERS, MAX_PHASES)];
     unsigned int nacts;
     unsigned int k;
     unsigned int oldTail;
@@ -343,20 +346,20 @@ main(
      * incoming messages so its Fig1 echoes/readys continue to
      * reach peers still working on some BAs.  Skipping replicates
      * the post-decide stall the library itself was fixed to avoid
-     * (see acs.c acsConsensusInput comment on a->complete).  The
-     * simulation loop terminates when the message queue drains,
-     * not when any one peer reaches complete.
+     * (see bkr94acs.c bkr94acsConsensusInput comment on
+     * a->complete).  The simulation loop terminates when the
+     * message queue drains, not when any one peer reaches complete.
      */
     oldTail = Qtail;
 
-    if (m->cls == ACS_CLS_PROPOSAL) {
+    if (m->cls == BKR94ACS_CLS_PROPOSAL) {
       if (verbose)
         printf("peer %u: recv PROP %s(origin=%u) from %u\n",
                (unsigned)m->to, typeName(m->type),
                (unsigned)m->origin, (unsigned)m->from);
 
-      nacts = acsProposalInput(st, m->origin, m->type, m->from,
-                               m->value, acts);
+      nacts = bkr94acsProposalInput(st, m->origin, m->type, m->from,
+                                    m->value, acts);
     } else {
       if (verbose)
         printf("peer %u: recv CON %s(origin=%u, round=%u, val=%u) from %u\n",
@@ -364,9 +367,9 @@ main(
                (unsigned)m->origin, (unsigned)m->round,
                (unsigned)m->value[0], (unsigned)m->from);
 
-      nacts = acsConsensusInput(st, m->origin, m->round,
-                                m->broadcaster, m->type,
-                                m->from, m->value[0], acts);
+      nacts = bkr94acsConsensusInput(st, m->origin, m->round,
+                                     m->broadcaster, m->type,
+                                     m->from, m->value[0], acts);
     }
 
     /* Enqueue output actions as network messages */
@@ -375,28 +378,28 @@ main(
 
       switch (acts[k].act) {
 
-      case ACS_ACT_PROP_ECHO:
-      case ACS_ACT_PROP_READY:
+      case BKR94ACS_ACT_PROP_ECHO:
+      case BKR94ACS_ACT_PROP_READY:
         {
           const unsigned char *pv;
 
-          pv = acsProposalValue(st, acts[k].origin);
+          pv = bkr94acsProposalValue(st, acts[k].origin);
           if (!pv)
             break;
           if (verbose)
             printf("peer %u: -> PROP %s(origin=%u)\n",
                    (unsigned)m->to,
-                   (acts[k].act == ACS_ACT_PROP_ECHO) ? "ECHO" : "READY",
+                   (acts[k].act == BKR94ACS_ACT_PROP_ECHO) ? "ECHO" : "READY",
                    (unsigned)acts[k].origin);
           for (p = 0; p < n; ++p)
-            qPush(ACS_CLS_PROPOSAL, acts[k].origin, 0, 0,
-                  (acts[k].act == ACS_ACT_PROP_ECHO)
+            qPush(BKR94ACS_CLS_PROPOSAL, acts[k].origin, 0, 0,
+                  (acts[k].act == BKR94ACS_ACT_PROP_ECHO)
                     ? BRACHA87_ECHO : BRACHA87_READY,
                   m->to, (unsigned char)p, pv, vLen);
         }
         break;
 
-      case ACS_ACT_CON_SEND:
+      case BKR94ACS_ACT_CON_SEND:
         if (verbose)
           printf("peer %u: -> CON %s(origin=%u, round=%u, bcaster=%u, val=%u)\n",
                  (unsigned)m->to, typeName(acts[k].conType),
@@ -404,22 +407,22 @@ main(
                  (unsigned)acts[k].broadcaster,
                  (unsigned)acts[k].conValue);
         for (p = 0; p < n; ++p)
-          qPush(ACS_CLS_CONSENSUS, acts[k].origin, acts[k].round,
+          qPush(BKR94ACS_CLS_CONSENSUS, acts[k].origin, acts[k].round,
                 acts[k].broadcaster, acts[k].conType,
                 m->to, (unsigned char)p,
                 &acts[k].conValue, 1);
         break;
 
-      case ACS_ACT_BA_DECIDED:
+      case BKR94ACS_ACT_BA_DECIDED:
         if (verbose)
           printf("peer %u: BA[%u] decided %u\n",
                  (unsigned)m->to, (unsigned)acts[k].origin,
                  (unsigned)acts[k].conValue);
         break;
 
-      case ACS_ACT_COMPLETE:
+      case BKR94ACS_ACT_COMPLETE:
         if (verbose)
-          printf("peer %u: ACS COMPLETE\n", (unsigned)m->to);
+          printf("peer %u: BKR94 ACS COMPLETE\n", (unsigned)m->to);
         break;
       }
     }
@@ -432,7 +435,7 @@ main(
   /*  Output: each peer's agreed common subset in sorted order            */
   /*----------------------------------------------------------------------*/
 
-  printf("\n--- ACS Results (n=%u, t=%u, seed=%u) ---\n", n, t, origSeed);
+  printf("\n--- BKR94 ACS Results (n=%u, t=%u, seed=%u) ---\n", n, t, origSeed);
 
   {
     /* Verify all honest peers agree on the same subset and ordering */
@@ -448,20 +451,20 @@ main(
       unsigned int cnt;
       const char *sorted[MAX_PEERS];
 
-      if (!acsComplete(peers[i])) {
-        printf("Peer %u: ACS did not complete\n", i);
+      if (!bkr94acsComplete(peers[i])) {
+        printf("Peer %u: BKR94 ACS did not complete\n", i);
         exitCode = 1;
         continue;
       }
 
-      cnt = acsSubset(peers[i], subset);
+      cnt = bkr94acsSubset(peers[i], subset);
       printf("Peer %u: common subset (%u/%u proposals):\n", i, cnt, n);
 
       /* Collect proposal strings for sorted output */
       for (j = 0; j < cnt; ++j) {
         const unsigned char *pv;
 
-        pv = acsProposalValue(peers[i], subset[j]);
+        pv = bkr94acsProposalValue(peers[i], subset[j]);
         sorted[j] = pv ? (const char *)pv : "(null)";
       }
 
@@ -502,7 +505,7 @@ cleanup:
 
 usage:
   fprintf(stderr,
-    "usage: example_acs [-v] [-s seed] n t proposal0 proposal1 ...\n"
+    "usage: example_bkr94acs [-v] [-s seed] n t proposal0 proposal1 ...\n"
     "  n            total peers (1-%d)\n"
     "  t            max Byzantine faults\n"
     "  proposal*    per-peer proposal strings\n"
