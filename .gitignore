@@ -52,8 +52,16 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
+# Local Build
+
+bracha87Fig1.c
+bracha87Fig3.c
+bracha87Fig4.c
+bkr94acsRules.c
+
 # Local Executables
-test_bracha87
-test_bkr94acs
 example_bracha87
 example_bkr94acs
+test_bracha87
+test_bkr94acs
+test_predicates
