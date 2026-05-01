@@ -122,14 +122,7 @@ struct bracha87Fig1 {
   unsigned char data[1];  /* variable: see bracha87Fig1Sz */
 };
 
-/*
- * Layout of data[] (N = n + 1, L = vLen + 1, BS = (N + 7) / 8):
- *   value[L]             committed value (valid when echoed)
- *   ecFrom[BS]           bitmap: 1 if peer j sent echo
- *   ecVal[N * L]         value peer j echoed
- *   rdFrom[BS]           bitmap: 1 if peer j sent ready
- *   rdVal[N * L]         value peer j readied
- */
+/* data[] is the variable tail; see bracha87.c for layout. */
 
 /* Size in bytes needed for a Fig1 instance */
 unsigned long
@@ -287,14 +280,7 @@ struct bracha87Fig2 {
   unsigned char data[1];  /* variable: see bracha87Fig2Sz */
 };
 
-/*
- * Layout of data[] (N = n + 1, BS = (N + 7) / 8, MR = maxRounds):
- *   complete[((MR + 7) / 8)]  bitmap: 1 if n-t reached for round
- *   Per round (MR rounds):
- *     recvCount              (unsigned char) received messages this round
- *     received[BS]           bitmap: 1 if received from peer
- *     values[N]              value per peer
- */
+/* data[] is the variable tail; see bracha87.c for layout. */
 
 /* Size in bytes needed for a Fig2 instance */
 unsigned long
@@ -413,15 +399,7 @@ struct bracha87Fig3 {
   unsigned char data[1];   /* variable: see bracha87Fig3Sz */
 };
 
-/*
- * Layout of data[] (N = n + 1, BS = (N + 7) / 8, MR = maxRounds):
- *   complete[((MR + 7) / 8)]  bitmap: 1 if n-t validated for round
- *   Per round (MR rounds):
- *     validCount             (unsigned char) validated messages this round
- *     arrived[BS]            bitmap: 1 if accepted by Fig 1
- *     valid[BS]              bitmap: 1 if in VALID^k
- *     values[N]              value per peer
- */
+/* data[] is the variable tail; see bracha87.c for layout. */
 
 unsigned long
 bracha87Fig3Sz(
@@ -541,9 +519,13 @@ typedef unsigned char (*bracha87CoinFn)(
  * Figure 4 state.
  *
  * Caller allocates bracha87Fig4Sz(n, maxPhases) bytes and calls
- * bracha87Fig4Init. Embeds a Fig3 instance internally.
+ * bracha87Fig4Init.  Embeds a Fig3 instance as the trailing fig3
+ * field; its variable tail extends past sizeof (struct bracha87Fig4)
+ * into the bytes Sz() reserves for it.  Caller reads the embedded
+ * Fig3 directly as &fig4->fig3 — no cast.
  *
  * maxPhases must be >= 1 and <= BRACHA87_MAX_PHASES (85).
+ * Fig 4 instantiates Fig 3 with maxRounds = maxPhases * 3.
  */
 struct bracha87Fig4 {
   bracha87CoinFn coin;
@@ -556,7 +538,7 @@ struct bracha87Fig4 {
   unsigned char value;     /* current estimate */
   unsigned char decided;
   unsigned char decision;
-  unsigned char data[1];   /* variable: embeds Fig3 + per-round state */
+  struct bracha87Fig3 fig3;/* embedded Fig 3; variable tail extends past */
 };
 
 unsigned long

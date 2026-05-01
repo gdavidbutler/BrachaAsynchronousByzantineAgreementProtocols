@@ -528,7 +528,7 @@ bkr94acsConsensusInput(
   f1 = (struct bracha87Fig1 *)(pipe
     + ((unsigned long)round * N + broadcaster) * cf1sz);
   f4 = (struct bracha87Fig4 *)(pipe + f4off);
-  f3 = (struct bracha87Fig3 *)f4->data;
+  f3 = &f4->fig3;
   nextRound = &bkr94acsConNextRound(a)[origin];
   nact = 0;
 
@@ -679,15 +679,6 @@ bkr94acsConsensusInput(
   return (nact);
 }
 
-int
-bkr94acsComplete(
-  const struct bkr94acs *a
-){
-  if (!a)
-    return (0);
-  return (a->complete);
-}
-
 unsigned int
 bkr94acsSubset(
   const struct bkr94acs *a
@@ -704,7 +695,7 @@ bkr94acsSubset(
    * BKR94 Step 3 read: SubSet_i = { j : BA_j had output 1 }.
    * Lemma 2 Part A gives |SubSet| >= 2t+1 = n-t; Part C gives
    * cross-peer agreement on SubSet; Part D gives Q(j)=1 for every
-   * j in SubSet.  Caller must gate this on bkr94acsComplete() to
+   * j in SubSet.  Caller must gate this on a->complete to
    * observe the final subset; a mid-run read reports the partial
    * set of decided-1 origins.
    */
@@ -1062,22 +1053,3 @@ bkr94acsCommittedFig1Count(
   return (count);
 }
 
-void
-bkr94acsCursor(
-  const struct bkr94acs *a
- ,unsigned char *phase
- ,unsigned char *origin
- ,unsigned char *round
- ,unsigned char *broadcaster
-){
-  if (!a)
-    return;
-  if (phase)
-    *phase = a->cursorPhase;
-  if (origin)
-    *origin = a->cursorOrigin;
-  if (round)
-    *round = a->cursorRound;
-  if (broadcaster)
-    *broadcaster = a->cursorBroadcaster;
-}

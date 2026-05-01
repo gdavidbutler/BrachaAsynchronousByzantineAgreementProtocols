@@ -1,5 +1,5 @@
 /*
- * achaAsynchronousByzantineAgreementProtocols - Asynchronous Byzantine Agreement Protocols
+ * asynchronousByzantineAgreementProtocols - Asynchronous Byzantine Agreement Protocols
  * Copyright (C) 2026 G. David Butler <gdb@dbSystems.com>
  *
  * This file is part of asynchronousByzantineAgreementProtocols
@@ -1061,7 +1061,13 @@ bracha87Fig4Sz(
   /* Clamp: maxPhases * 3 must fit in unsigned char round count. */
   if (maxPhases > BRACHA87_MAX_PHASES)
     maxPhases = BRACHA87_MAX_PHASES;
-  return (sizeof (struct bracha87Fig4) - 1
+  /*
+   * sizeof (struct bracha87Fig4) counts the embedded fig3 as exactly
+   * sizeof (struct bracha87Fig3) (its declared size, including the
+   * 1-byte data[1]).  The actual Fig3 instance needs Fig3Sz bytes;
+   * subtract the placeholder, add the real size.
+   */
+  return (sizeof (struct bracha87Fig4) - sizeof (struct bracha87Fig3)
     + bracha87Fig3Sz(n, maxPhases * 3));
 }
 
@@ -1091,7 +1097,7 @@ bracha87Fig4Init(
   b->coin = coin;
   b->coinClosure = coinClosure;
   bracha87Fig3Init(
-    (struct bracha87Fig3 *)b->data
+    &b->fig3
    ,n, t, (unsigned char)(maxPhases * 3), fig4Nfn, b);
 }
 

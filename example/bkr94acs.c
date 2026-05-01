@@ -458,7 +458,7 @@ main(
       unsigned int cnt;
       const char *sorted[MAX_PEERS];
 
-      if (!bkr94acsComplete(peers[i])) {
+      if (!peers[i]->complete) {
         printf("Peer %u: BKR94 ACS did not complete\n", i);
         exitCode = 1;
         continue;

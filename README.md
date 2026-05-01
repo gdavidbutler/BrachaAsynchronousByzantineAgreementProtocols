@@ -227,13 +227,13 @@ while (!silenceQuorumExit) {
 | `bkr94acsProposalInput(acs, origin, type, from, value, out)` | Process a proposal broadcast message; returns action count |
 | `bkr94acsConsensusInput(acs, origin, round, broadcaster, type, from, value, out)` | Process a consensus message; returns action count |
 | `bkr94acsPump(acs, out)` | BPR pump tick; cursor walks one Fig 1 per call; returns action count (0-3); 0 = full-sweep idle |
-| `bkr94acsComplete(acs)` | Check if all N BAs have decided |
 | `bkr94acsSubset(acs, origins)` | Retrieve the decided common subset |
 | `bkr94acsProposalValue(acs, origin)` | Retrieve accepted proposal value for an origin |
 | `bkr94acsActIdentity(act, out, outCap)` | Fixed-length [act, origin, round, broadcaster, type] bytes for chanBlbChnRsec-style wire-tag uniqueness; returns BKR94ACS_ACT_IDENTITY_LEN (5) for SEND acts, 0 otherwise |
 | `bkr94acsBaDecision(acs, origin)` | BA decision for origin: 0xFF undecided / 0 excluded / 1 included |
 | `bkr94acsCommittedFig1Count(acs)` | Count of Fig1 instances with any committed flag (ORIGIN/ECHOED/RDSENT); useful for cadence sizing |
-| `bkr94acsCursor(acs, *phase, *origin, *round, *broadcaster)` | Read pump cursor position; pass 0 to skip a field |
+
+Read `acs->complete` directly to check if all N BAs have decided. Read `acs->cursorPhase` / `cursorOrigin` / `cursorRound` / `cursorBroadcaster` directly to inspect the pump cursor position.
 
 ### Action Struct
 
@@ -257,8 +257,8 @@ For raw binary consensus (Fig 1 + Fig 3 + Fig 4 directly), the caller manages th
 ```c
 /* Per process: */
 struct bracha87Fig1 *fig1[maxRounds * n];  /* one per (origin, round) */
-struct bracha87Fig4 *fig4;                 /* embeds Fig3 */
-struct bracha87Fig3 *fig3 = (struct bracha87Fig3 *)fig4->data;
+struct bracha87Fig4 *fig4;                 /* embeds Fig3 as fig4->fig3 */
+struct bracha87Fig3 *fig3 = &fig4->fig3;
 unsigned char nextRound = 0;
 
 /* Self-initiation: mark our own (origin=self, round=0) Fig 1 as originator. */

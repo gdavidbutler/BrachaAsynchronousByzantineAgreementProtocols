@@ -2117,7 +2117,7 @@ testFig4SubsetMajority(
   b = (struct bracha87Fig4 *)calloc(1, sz);
   CoinVal = 0;
   bracha87Fig4Init(b, 4, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   /* Round 0: 2 zeros, 3 ones (all 5 peers) */
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);  /* vc=1 */
@@ -2149,7 +2149,7 @@ testFig4SubsetMajority(
   b = (struct bracha87Fig4 *)calloc(1, sz);
   CoinVal = 0;
   bracha87Fig4Init(b, 3, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
   bracha87Fig3Accept(f3, 0, 1, 1, &vc);
@@ -2178,7 +2178,7 @@ testFig4SubsetMajority(
   b = (struct bracha87Fig4 *)calloc(1, sz);
   CoinVal = 0;
   bracha87Fig4Init(b, 7, 2, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
   bracha87Fig3Accept(f3, 0, 1, 0, &vc);
@@ -2211,7 +2211,7 @@ testFig4SubsetMajority(
   b = (struct bracha87Fig4 *)calloc(1, sz);
   CoinVal = 0;
   bracha87Fig4Init(b, 4, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
   bracha87Fig3Accept(f3, 0, 1, 0, &vc);
@@ -2262,7 +2262,7 @@ testFig4SubsetMajorityBoundary(
   b = (struct bracha87Fig4 *)calloc(1, sz);
   CoinVal = 0;
   bracha87Fig4Init(b, 8, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
   bracha87Fig3Accept(f3, 0, 1, 0, &vc);
@@ -2285,7 +2285,7 @@ testFig4SubsetMajorityBoundary(
    * v=0 accepted, v=1 rejected. */
   b = (struct bracha87Fig4 *)calloc(1, sz);
   bracha87Fig4Init(b, 8, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
   bracha87Fig3Accept(f3, 0, 1, 0, &vc);
@@ -2307,7 +2307,7 @@ testFig4SubsetMajorityBoundary(
    * v=0 rejected, v=1 accepted. */
   b = (struct bracha87Fig4 *)calloc(1, sz);
   bracha87Fig4Init(b, 8, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
   bracha87Fig3Accept(f3, 0, 1, 0, &vc);
@@ -2352,7 +2352,7 @@ testFig4DflagInjection(
   b = (struct bracha87Fig4 *)calloc(1, sz);
   CoinVal = 0;
   bracha87Fig4Init(b, 3, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
   bracha87Fig3Accept(f3, 0, 1, 0, &vc);
@@ -2369,7 +2369,7 @@ testFig4DflagInjection(
   sz = bracha87Fig4Sz(4, 10);
   b = (struct bracha87Fig4 *)calloc(1, sz);
   bracha87Fig4Init(b, 4, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
   bracha87Fig3Accept(f3, 0, 1, 0, &vc);
@@ -2400,7 +2400,7 @@ testFig4DflagInjection(
   sz = bracha87Fig4Sz(4, 10);
   b = (struct bracha87Fig4 *)calloc(1, sz);
   bracha87Fig4Init(b, 4, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   /* Round 0: 5 zeros (full set).  Validates round 1 v=0 exact. */
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
@@ -2435,7 +2435,7 @@ testFig4DflagInjection(
    */
   b = (struct bracha87Fig4 *)calloc(1, sz);
   bracha87Fig4Init(b, 4, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   /* Round 0: 5 zeros so round 1 v=0 validates exact. */
   bracha87Fig3Accept(f3, 0, 0, 0, &vc);
@@ -2454,7 +2454,7 @@ testFig4DflagInjection(
   /* Reset: round 0 mixed permissive so round 1 accepts both values. */
   b = (struct bracha87Fig4 *)calloc(1, sz);
   bracha87Fig4Init(b, 4, 1, 10, 0, testCoin, 0);
-  f3 = (struct bracha87Fig3 *)b->data;
+  f3 = &b->fig3;
 
   /* Round 0: cnt[0]=2 cnt[1]=3 n_msgs=5 -> permissive (case 0 fix).
    * Round 1 v=0 and v=1 both accepted. */
@@ -2821,7 +2821,7 @@ bqShuffle(
 struct composedState {
   struct bracha87Fig1 **fig1;  /* maxRounds * n instances */
   struct bracha87Fig4 *fig4;
-  struct bracha87Fig3 *fig3;   /* pointer into fig4->data */
+  struct bracha87Fig3 *fig3;   /* &fig4->fig3 */
   unsigned char nextRound;
 };
 
@@ -2889,7 +2889,7 @@ simComposed(
     }
     bracha87Fig4Init(states[i].fig4, n - 1, t, maxPhases,
                      initVals[i], testCoin, 0);
-    states[i].fig3 = (struct bracha87Fig3 *)states[i].fig4->data;
+    states[i].fig3 = &states[i].fig4->fig3;
     states[i].nextRound = 0;
   }
 

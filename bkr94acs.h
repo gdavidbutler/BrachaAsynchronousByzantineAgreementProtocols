@@ -192,16 +192,7 @@ struct bkr94acs {
   unsigned char data[1];    /* variable: see bkr94acsSz */
 };
 
-/*
- * Layout of data[] (N = n + 1):
- *   voted[N]            per-origin: 0=not voted, 1=voted-1, 2=voted-0
- *   baDecision[N]       per-origin: 0xFF=undecided, 0=excluded, 1=included
- *   propFig1[N]         N Fig1 instances for proposal broadcast (each propF1Sz bytes)
- *   Per-origin consensus (N instances):
- *     conFig1[maxRounds * N]  Fig1 instances for consensus (each conF1Sz bytes)
- *     conFig4[1]              Fig4 instance (fig4Sz bytes)
- *     conNextRound            (unsigned char) next round to check
- */
+/* data[] is the variable tail; see bkr94acs.c for layout. */
 
 /* Size in bytes needed for a BKR94 ACS instance */
 unsigned long
@@ -332,18 +323,10 @@ bkr94acsConsensusInput(
 );
 
 /*
- * Query: is the common subset decided?
- */
-int
-bkr94acsComplete(
-  const struct bkr94acs *
-);
-
-/*
  * Query: get the decided common subset.
  * Returns count of included origins.
  * Fills origins[] with the included origin indices (caller provides n entries).
- * Only valid after bkr94acsComplete() returns true.
+ * Only valid after a->complete is non-zero.
  */
 unsigned int
 bkr94acsSubset(
@@ -469,26 +452,6 @@ bkr94acsBaDecision(
 unsigned int
 bkr94acsCommittedFig1Count(
   const struct bkr94acs *
-);
-
-/*
- * Current pump cursor position.  Reads the four cursor fields
- * (phase, origin, round, broadcaster).  Any out parameter may be
- * 0 to skip that field.
- *
- *   phase: 0 = proposal Fig1s, 1 = consensus Fig1s
- *   origin / round / broadcaster: position within phase
- *
- * Useful for monitoring sweep progress and diagnosing stalls.
- * No-op on null state.
- */
-void
-bkr94acsCursor(
-  const struct bkr94acs *
- ,unsigned char *          /* phase: 0 to skip */
- ,unsigned char *          /* origin: 0 to skip */
- ,unsigned char *          /* round: 0 to skip */
- ,unsigned char *          /* broadcaster: 0 to skip */
 );
 
 #endif /* BKR94ACS_H */

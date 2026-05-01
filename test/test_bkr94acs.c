@@ -8,7 +8,7 @@
  * Verifies:
  *   Agreement  — all honest peers decide the same subset
  *   Validity   — subset contains at least n-t origins
- *   Totality   — all BAs decide (bkr94acsComplete returns true)
+ *   Totality   — all BAs decide (a->complete becomes non-zero)
  *   Values     — accepted proposal values match what was proposed
  *   Ordering   — deterministic sort produces identical order at each peer
  */
@@ -241,7 +241,7 @@ runAcs(
 
   /* Collect results */
   for (i = 0; i < n; ++i) {
-    results[i].complete = bkr94acsComplete(peers[i]);
+    results[i].complete = peers[i]->complete;
     results[i].subsetCnt = bkr94acsSubset(peers[i], results[i].subset);
   }
 
@@ -529,7 +529,7 @@ testValues(
 
     m = &MsgQ[Qhead++];
     st = peers[m->to];
-    if (bkr94acsComplete(st))
+    if (st->complete)
       continue;
 
     if (m->cls == BKR94ACS_CLS_PROPOSAL) {
@@ -572,7 +572,7 @@ testValues(
     unsigned char subset[MAX_PEERS];
     unsigned int cnt;
 
-    check("values: complete", bkr94acsComplete(peers[i]));
+    check("values: complete", peers[i]->complete);
     cnt = bkr94acsSubset(peers[i], subset);
     for (j = 0; j < cnt; ++j) {
       const unsigned char *pv;
@@ -1193,7 +1193,7 @@ testBpr(
       /* Idle quorum check */
       progress = 0;
       for (p = 0; p < 4; ++p)
-        if (!bkr94acsComplete(peers[p])) {
+        if (!peers[p]->complete) {
           progress = 1;
           break;
         }
@@ -1243,7 +1243,7 @@ testBpr(
     }
 
     for (p = 0; p < 4; ++p) {
-      results[p].complete = bkr94acsComplete(peers[p]);
+      results[p].complete = peers[p]->complete;
       results[p].subsetCnt = bkr94acsSubset(peers[p], results[p].subset);
     }
 
@@ -1574,7 +1574,7 @@ testBprByzantineSilent(
     /* Idle quorum on honest peers */
     progress = 0;
     for (p = 0; p < 3; ++p)
-      if (!bkr94acsComplete(peers[p])) {
+      if (!peers[p]->complete) {
         progress = 1;
         break;
       }
@@ -1622,7 +1622,7 @@ testBprByzantineSilent(
   }
 
   for (p = 0; p < 3; ++p) {
-    results[p].complete = bkr94acsComplete(peers[p]);
+    results[p].complete = peers[p]->complete;
     results[p].subsetCnt = bkr94acsSubset(peers[p], results[p].subset);
   }
 
@@ -1738,7 +1738,7 @@ runPumpOnlyE2e(
 
     progress = 0;
     for (p = 0; p < 4; ++p)
-      if (!bkr94acsComplete(peers[p])) {
+      if (!peers[p]->complete) {
         progress = 1;
         break;
       }
@@ -1787,7 +1787,7 @@ runPumpOnlyE2e(
   }
 
   for (p = 0; p < 4; ++p) {
-    results[p].complete = bkr94acsComplete(peers[p]);
+    results[p].complete = peers[p]->complete;
     results[p].subsetCnt = bkr94acsSubset(peers[p], results[p].subset);
   }
 

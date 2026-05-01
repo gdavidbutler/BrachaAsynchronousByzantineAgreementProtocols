@@ -159,7 +159,7 @@ coin(
 struct peerState {
   struct bracha87Fig1 **fig1;  /* [maxRounds * n] instances */
   struct bracha87Fig4 *fig4;
-  struct bracha87Fig3 *fig3;   /* pointer into fig4->data */
+  struct bracha87Fig3 *fig3;   /* &fig4->fig3 */
   unsigned char nextRound;     /* next round to check for completion */
 };
 
@@ -311,7 +311,7 @@ main(
 
     bracha87Fig4Init(peers[i].fig4, (unsigned char)(n - 1),
                      (unsigned char)t, MAX_PHASES, initVals[i], coin, 0);
-    peers[i].fig3 = (struct bracha87Fig3 *)peers[i].fig4->data;
+    peers[i].fig3 = &peers[i].fig4->fig3;
     peers[i].nextRound = 0;
   }
 
