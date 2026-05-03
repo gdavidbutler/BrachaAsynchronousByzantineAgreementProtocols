@@ -134,8 +134,8 @@ struct bkr94acsAct {
 };
 
 /*
- * Wire-uniqueness identity for chanBlbChnRsec-style transports
- * that key reassembly tables on a per-emission unique tag.
+ * Wire-uniqueness identity for transports that key reassembly
+ * tables on a per-emission unique tag.
  *
  * Fills out[BKR94ACS_ACT_IDENTITY_LEN] with the protocol's
  * emission identity tuple [act, origin, round, broadcaster,

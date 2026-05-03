@@ -29,6 +29,16 @@
  * deterministically so every peer outputs the same ordering — the
  * core of atomic broadcast.
  *
+ * Scope: this demo runs in a single process with a synchronous
+ * deterministic in-memory queue — every input is delivered, no
+ * loss, no reordering, no asynchrony. It exercises the protocol
+ * state machines and the BPR pump but does NOT exercise the
+ * deployment-time termination policies (silence-quorum + K-sweep
+ * gate, abandonment) needed under real asynchronous transport;
+ * those are inherently coupled to message loss, partial ordering,
+ * and the failure modes those introduce. See README.md
+ * "Termination policy" for the design.
+ *
  * Build:
  *   (from project root) make example_bkr94acs
  *

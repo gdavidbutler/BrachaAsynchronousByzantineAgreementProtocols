@@ -230,7 +230,7 @@ while (!silenceQuorumExit) {
 | `bkr94acsPump(acs, out)` | BPR pump tick; cursor walks one Fig 1 per call; returns action count (0-3); 0 = full-sweep idle |
 | `bkr94acsSubset(acs, origins)` | Retrieve the decided common subset |
 | `bkr94acsProposalValue(acs, origin)` | Retrieve accepted proposal value for an origin |
-| `bkr94acsActIdentity(act, out, outCap)` | Fixed-length [act, origin, round, broadcaster, type] bytes for chanBlbChnRsec-style wire-tag uniqueness; returns BKR94ACS_ACT_IDENTITY_LEN (5) for SEND acts, 0 otherwise |
+| `bkr94acsActIdentity(act, out, outCap)` | Fixed-length [act, origin, round, broadcaster, type] identity tuple for use as a wire correlator on transports that need a uniqueness key; returns BKR94ACS_ACT_IDENTITY_LEN (5) for SEND acts, 0 otherwise |
 | `bkr94acsBaDecision(acs, origin)` | BA decision for origin: 0xFF undecided / 0xFE exhausted / 0 excluded / 1 included |
 | `bkr94acsCommittedFig1Count(acs)` | Count of Fig1 instances with any committed flag (ORIGIN/ECHOED/RDSENT); useful for cadence sizing |
 
@@ -375,14 +375,44 @@ A previous deployment pattern wrapped this library in a per-record ledger: `peer
 
 Wire-level efficiencies like RSEC (Reed-Solomon erasure coding) and inter-shard delay are still useful as efficiency tuning under steady drop, but they are not reliability mechanisms; only BPR is. RSEC reduces the per-shard miss rate; BPR closes the residual gap.
 
-### Post-decide continuation is mandatory
+### Termination policy
 
 A decided peer must keep broadcasting (Implementation Note 1) so others can reach consensus. Two obvious exit mechanisms are both wrong:
 
 - Exit on `BKR94ACS_ACT_COMPLETE` — violates post-decide continuation; peers deciding last can be stranded.
 - Broadcast a "DONE" message and exit on a threshold of receipts — the DONE has no retransmit siblings in the typical ledger model; loss of the initial emission strands peers that never hear it before early completers exit.
 
-The principled alternative is a **progress-silence quorum exit.** Each peer tracks the local tick at which every other peer last advanced its observable state (Fig 4 round, Fig 1 proposal/consensus phase transition, etc.). A peer whose state has not advanced for a chosen silence window is "done-silent." Exit when the local instance is complete AND at least `n-t-1` others are done-silent. The threshold is `n-t-1`, not `n-t` — self is implicit because completion is known locally. Using `n-t` is silently wrong at `t>0` and unreachable at `t=0`.
+The principled alternative is a **silence-quorum exit gated on a sweep count.** Each peer tracks (a) the local tick at which every other peer last advanced its observable state — Fig 4 round, Fig 1 proposal/consensus phase transition, BA decision — and (b) how many BPR sweeps it has performed. A peer whose state has not advanced for a chosen silence window is "done-silent." Exit when at least `n-t-1` others are done-silent **and** at least K BPR sweeps have completed. The threshold is `n-t-1`, not `n-t` — self is implicit because completion is known locally. Using `n-t` is silently wrong at `t>0` and unreachable at `t=0`.
+
+Both clauses are load-bearing. The silence clause alone has two failure modes that must be repaired by the sweep clause:
+
+1. **Premature exit cuts post-decide feeding short.** Once a decided peer's local state stops advancing, the natural silence window (a small multiple of declared max RTT, e.g. 8 ticks) is shorter than one full BPR pass — `bkr94acsPump` walks one Fig1 per call, so a single pass through every committed Fig1 takes `bkr94acsCommittedFig1Count(a)` Pump calls, typically dozens to hundreds. If the silence window expires before that pass completes, slow honest peers are stranded with un-emitted committed Fig1s they still need.
+2. **Honest-slow looks like done.** A slow peer's BPR replays of its own committed flags arrive at fast peers as duplicates — `bkr94acsConsensusInput` returns `nacts == 0` for already-known content, so `peerProgressTick[slow_peer]` does not refresh. Without the sweep clause, fast peers conclude the slow peer is silent and exit while the slow peer is still trying to catch up.
+
+#### What "one sweep" means
+
+One sweep = `bkr94acsCommittedFig1Count(a)` Pump calls. After that many calls, every currently-committed Fig1 instance has been visited and its committed actions emitted at least once. K sweeps gives every committed Fig1 K emissions, so a slow peer's expected received-emissions per Fig1 is `K × (1 − loss)`. K is the deployment knob calibrated against assumed loss rate (NOT against RTT).
+
+Recompute the threshold each Pump call: `bkr94acsCommittedFig1Count(a)` grows during the run as new rounds advance, and a peer that picks up new owned Fig1s late must not shortcut the gate.
+
+**Do not measure sweeps by cursor-position wraparound.** The full cursor space is `N + N × maxRounds × N` (with `maxRounds = maxPhases × 3`, default 255). When committed Fig1s are dense — every consensus round each peer reached has its own committed Fig1 per broadcaster — the cursor advances ~1 position per Pump call, and a position-space sweep takes thousands of ticks even at small N. The Pump-count metric is the actual coverage signal; the cursor space is an implementation detail.
+
+#### Symmetric application: pre-decide patience and post-decide feeding
+
+Apply the K-sweep gate symmetrically:
+
+- **Decided peers** (done or exhausted): K sweeps post-decide is the feeding obligation — K retransmissions of every committed Fig1 to slow peers.
+- **Undecided peers**: K sweeps from epoch start is the patience obligation — K opportunities to RECEIVE missing pieces from peers whose own pumps are wrapping at similar rates. Without symmetric patience, an undecided peer with high apparent silence abandons before any peer's first sweep, defeating the post-decide feeding obligation at the receiving end.
+
+Both clauses are the same K; by peer similarity (similar Fig1 counts → similar sweep durations), K of own sweeps ≈ K of every other peer's sweeps.
+
+#### Use `peerProgressTick`, not `lastIngressTick`
+
+Track silence by state-advancing inputs (an Input call returning `nacts > 0`, or an out-of-band first arrival like a key delivery), not by raw incoming bytes. State-advance is the actual progress signal; raw bytes are not. Refreshing on raw bytes also exposes an informed-DoS surface — an attacker sending HMAC-valid garbage at any cadence delays exit indefinitely. The sweep clause makes peerProgressTick safe even under the duplicate-suppression failure mode above (failure mode 2): pre-decide patience holds the loop open until the slow peer can actually catch up.
+
+#### Abandonment
+
+A peer that satisfies `silence quorum AND K sweeps AND !done AND !exhausted` is **abandoned**: no honest quorum is reachable for this epoch. The application must surface abandonment as a distinct outcome from `BKR94ACS_ACT_COMPLETE` and from `BKR94ACS_ACT_BA_EXHAUSTED`, and **must not commit any unilateral decision** — any substitute could disagree with another peer's actual decision (Lemma 2 Part C). The decision membership for the local epoch is empty; the application falls back to a higher-level recovery (next epoch, membership reconfiguration, etc.).
 
 ### Coin choice
 

@@ -1009,8 +1009,8 @@ bkr94acsPump(
 /*------------------------------------------------------------------------*/
 
 /*
- * Identity bytes for chanBlbChnRsec-style transports.  See
- * bkr94acs.h for the field-usage contract.
+ * Identity bytes for transports that need a per-emission wire
+ * correlator.  See bkr94acs.h for the field-usage contract.
  */
 unsigned int
 bkr94acsActIdentity(
