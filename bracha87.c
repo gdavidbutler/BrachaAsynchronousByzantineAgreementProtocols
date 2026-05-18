@@ -1235,6 +1235,7 @@ bracha87PumpInit(
   if (p) {
     p->pos = 0;
     p->sweepActs = 0;
+    p->sendDest = 0;
   }
 }
 

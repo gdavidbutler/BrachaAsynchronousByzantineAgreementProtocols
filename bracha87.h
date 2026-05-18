@@ -672,6 +672,16 @@ bracha87Fig4Round(
 struct bracha87Pump {
   unsigned int pos;        /* next index to visit */
   unsigned int sweepActs;  /* actions emitted in current sweep */
+  unsigned int sendDest;   /* per-instance per-destination cursor;
+                            * used by Pump consumers whose replay is
+                            * per-destination rather than broadcast
+                            * (ct04DspBpr / ct04DspPumpStep walk one
+                            * SEND target per call while F_ORIGIN
+                            * holds, advancing this index modulo n
+                            * before pos advances to the next
+                            * instance).  bracha87Fig1PumpStep /
+                            * bkr94acsPump (broadcast replays) do
+                            * not read this field. */
 };
 
 void

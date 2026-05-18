@@ -1,0 +1,247 @@
+# Cachin and Tessaro 2004
+# "Asynchronous Verifiable Information Dispersal"
+# IEEE / IFIP DSN 2005 (preprint: IBM Research Report RZ 3491)
+#
+# Figure 1 - Disperse (paper-faithful, plugin-abstract).
+#
+# This decision table captures the wire-receipt rules of the
+# Disperse protocol.  AVID (Section 3.3), AVID-H (Section 3.5), and
+# the inner Disperse of AVID-RBC (Section 3.7) share the same wire-
+# rule structure; they differ only in (a) the per-block "piece
+# valid" predicate (a plugin choice), (b) what the C wrapper records
+# on (output, stored), and (c) any outer wrap a higher layer adds
+# after delivery.  None of (a-c) are visible at this layer.
+#
+# The vocabulary follows the CT04 §3.5 plugin-abstract restatement:
+# "send / echo / ready" are paper wire-message names, and "D" refers
+# to the agreed root commitment (the AVID hash vector or the AVID-H
+# Merkle root - the plugin decides).
+#
+# C-side early-exits run BEFORE the dispatch (see ct04Dsp.c
+# wrapper):
+#   1. have-terminated guard - abort or stored already fired
+#   2. first-time dedup against A_D (per-sender for echo / ready;
+#      per-tag for send, since there is only one dealer per tag)
+#   3. piece valid - the plugin's per-block predicate
+#
+# By the time the dispatch fires, A_D has been updated, e_D / r_D
+# have been incremented, the counter-threshold predicates have been
+# computed, and (when the threshold gate indicates interpolation)
+# the plugin's decode-and-verify-all-pieces predicate has been
+# evaluated.
+#
+# Inputs (the situation when the message is processed):
+#   "kind of message"   { (send, D, F_i), (echo, D, F_m),
+#                         (ready, D, F_m) }
+#   "e_D = max(ceil((n+t+1)/2), k)"   { yes, no }
+#                                       Post-increment of e_D.
+#                                       Edge-triggered: true on the
+#                                       arrival that crosses the
+#                                       threshold; false thereafter.
+#   "r_D < k"                          { yes, no }
+#   "r_D = k"                          { yes, no }
+#   "r_D = k + t"                      { yes, no }
+#                                       Post-increment of r_D.
+#                                       Edge-triggered analogously.
+#   "decode succeeds"   { yes, no }
+#                         The plugin's decode-and-verify-all-pieces
+#                         predicate.  Computed by the wrapper only
+#                         when the threshold combination indicates
+#                         interpolation (R2a/b or R3a/b gate
+#                         active); passed `no` otherwise (inert,
+#                         since the rule rows that test it are
+#                         gated on the threshold combination).
+#   "have echoed"       { yes, no }
+#                         BPR sticky flag - set whenever the wrapper
+#                         has emitted (echo, D, F_i) on any prior
+#                         dispatch.
+#   "have rdsent"       { yes, no }
+#                         BPR sticky flag - set whenever the wrapper
+#                         has emitted (ready, D, F-bar_i).
+#
+# Outputs (the actions the process may take):
+#   "send (echo, D, F_i)"           { yes, no }
+#   "send (ready, D, F-bar_i)"      { yes, no }
+#   "output (abort)"                { yes, no }
+#   "output (stored)"               { yes, no }
+#   "replay (echo, FP_i, F_i)"      { yes, no }   (BPR)
+#   "replay (ready, FP_i, F-bar_i)" { yes, no }   (BPR)
+#
+# Cells covering counter-state combinations unreachable by invariant
+# (mutual exclusion of "r_D < k", "r_D = k", "r_D = k + t" by
+# counter monotonicity) are encoded as no-action rows so every input
+# combination resolves.  See ct04Dsp.dtc inventory document §3.1.2.
+
+# ===== send (echo, D, F_i) =====
+
+# R1.  Upon receiving (ID, send, D, F_i) from the dealer first
+# time with H(F_i) = D_i (AVID) or verify(i, F_i, FP, h_r)
+# (AVID-H), broadcast (ID, echo, D, F_i) to all servers.
+# (CT04 §3.3 Fig. 1 send-arrival, p. 10; §3.5 Lemma 5, p. 12.)
+#
+# The first-time and piece-valid preconditions are C-side
+# early-exits, so by the time the dispatch fires on a SEND
+# arrival both are satisfied.  Echo / ready arrivals never
+# fire send-echo.
+@"send (echo, D, F_i)","kind of message"
+yes,"(send, D, F_i)"
+no,"(echo, D, F_m)"
+no,"(ready, D, F_m)"
+
+# ===== send (ready, D, F-bar_i) =====
+
+# R2a.  Upon (echo, D, F_m) first-time piece-valid: increment
+# e_D; if e_D = max{ceil((n+t+1)/2), k} AND r_D < k, interpolate
+# f-bar of degree <= k - 1 from A_D, evaluate F-bar_j := f-bar(j)
+# for all j in [1, n], and if every reconstructed piece verifies
+# against the committed root, broadcast (ready, D, F-bar_i).
+# (CT04 §3.3 Fig. 1 echo-arrival, p. 10.)
+@"send (ready, D, F-bar_i)","kind of message","e_D = max(ceil((n+t+1)/2), k)","r_D < k","decode succeeds"
+yes,"(echo, D, F_m)",yes,yes,yes
+no,"(echo, D, F_m)",yes,yes,no
+no,"(echo, D, F_m)",yes,no,
+no,"(echo, D, F_m)",no,,
+
+# R3a.  Upon (ready, D, F_m) first-time piece-valid: increment
+# r_D; if e_D < max{ceil((n+t+1)/2), k} AND r_D = k,
+# interpolate as in R2a and (if all verify) broadcast
+# (ready, D, F-bar_i).  The (e_D, r_D) gate is mutually
+# exclusive with R2a's by counter intervals; each interpolation
+# fires at most once without an explicit guard.  (CT04 §3.3
+# Fig. 1 ready-arrival first branch, p. 10.)
+@"send (ready, D, F-bar_i)","kind of message","e_D = max(ceil((n+t+1)/2), k)","r_D = k","decode succeeds"
+yes,"(ready, D, F_m)",no,yes,yes
+no,"(ready, D, F_m)",no,yes,no
+no,"(ready, D, F_m)",yes,,
+no,"(ready, D, F_m)",no,no,
+
+# SEND arrival never fires the ready outputs.
+@"send (ready, D, F-bar_i)","kind of message"
+no,"(send, D, F_i)"
+
+# ===== output (abort) =====
+
+# R2b.  Same gate as R2a, but decode-and-verify-all-pieces
+# fails: output (abort).  (CT04 §3.3 Fig. 1 echo-arrival "else"
+# branch, p. 10.)
+@"output (abort)","kind of message","e_D = max(ceil((n+t+1)/2), k)","r_D < k","decode succeeds"
+yes,"(echo, D, F_m)",yes,yes,no
+no,"(echo, D, F_m)",yes,yes,yes
+no,"(echo, D, F_m)",yes,no,
+no,"(echo, D, F_m)",no,,
+
+# R3b.  Same gate as R3a, decode fails: output (abort).
+# (CT04 §3.3 Fig. 1 ready-arrival "else" branch, p. 10.)
+@"output (abort)","kind of message","e_D = max(ceil((n+t+1)/2), k)","r_D = k","decode succeeds"
+yes,"(ready, D, F_m)",no,yes,no
+no,"(ready, D, F_m)",no,yes,yes
+no,"(ready, D, F_m)",yes,,
+no,"(ready, D, F_m)",no,no,
+
+# SEND arrival never fires abort.
+@"output (abort)","kind of message"
+no,"(send, D, F_i)"
+
+# ===== output (stored) =====
+
+# R3c.  Upon (ready, D, F_m) first-time piece-valid, if
+# r_D = k + t AND the ready-side interpolation gate did NOT
+# fire on this arrival, output (stored).  The paper's
+# else-if structure (CT04 §3.3 Fig. 1 p. 10) attaches the
+# "Verify[ID]/Data[ID]/output (stored)" branch to the inner
+# if (e_D < max{..}) AND (r_D = k) - so on the same arrival,
+# stored is suppressed when R3a or R3b fires.  At t >= 1 the
+# (r_D = k) and (r_D = k + t) predicates are mutually
+# exclusive by counter values, so the suppression matters
+# only at the degenerate t = 0 regime (outside Theorem 3's
+# t + 1 <= k <= n - 2t precondition).  R3c's rule rows
+# enumerate the cases where r_D = k + t AND NOT
+# (e_D < max{..} AND r_D = k).
+@"output (stored)","kind of message","e_D = max(ceil((n+t+1)/2), k)","r_D = k","r_D = k + t"
+yes,"(ready, D, F_m)",yes,,yes
+yes,"(ready, D, F_m)",no,no,yes
+no,"(ready, D, F_m)",no,yes,yes
+no,"(ready, D, F_m)",,,no
+no,"(send, D, F_i)",,,
+no,"(echo, D, F_m)",,,
+
+# ===========================================================
+# Bracha Phase Re-emitter (BPR)
+# ===========================================================
+#
+# CT04 assumes eventually-reliable channels; over UDP this
+# assumption is not satisfied.  BPR re-emits the broadcast
+# actions an instance has committed to whenever the
+# application's pump ticks.  Same Saltzer-Reed-Clark 1984
+# argument as bracha87Fig1.dtc's BPR section (SRC84.txt).
+#
+# Composition.  BPR rules consume the paper outputs as inputs.
+# DTC chains the dispatch: paper rules compute first; BPR
+# observes the paper decisions and the sticky-state flags,
+# then emits distinct "replay" outputs.  The chain is
+# one-directional - BPR cannot affect paper decisions.
+#
+# Trigger.  The application calls ct04DspBpr on an instance
+# on its pump tick.  No wall-clock predicate appears anywhere;
+# the application's tick IS the event, so asynchrony is
+# preserved.  The Bpr wrapper enters the merged dispatch with
+# inputs that cannot fire any paper rule given current
+# committed state (kind = (echo, D, F_m), counter predicates
+# all no, decode no), so paper outputs come back all "no" and
+# the chained BPR rules fire from the committed flags.
+#
+# Discriminator.  ct04Dsp.c selects which outputs to apply by
+# entry point: ct04DspInput applies the paper outputs and
+# discards BPR outputs; ct04DspBpr applies BPR outputs and
+# discards the paper outputs (guaranteed all "no" in its call
+# path).
+#
+# Per-destination SEND replay -- not in this dispatch.
+# Unlike bracha87 INITIAL (one value to all peers), CT04 SEND
+# is per-destination (the dealer sends F_j specifically to
+# P_j).  Replay walks a per-destination cursor (one packet per
+# pump call to a single destination); the cursor lives in
+# struct bracha87Pump's sendDest field and advances one slot
+# per ct04DspBpr call while F_ORIGIN holds.  This is a
+# single-bit-guarded C early-emit (cursor advance + payload
+# lookup); DTC has no ordering insight over independent per-
+# destination payload reads.  Per the inventory's §4.5
+# anti-flood discipline, the rate of replay is bounded at one
+# packet per pump call - bursting all n destinations on one
+# call would re-create the saturation BPR exists to recover
+# from.  See README "Anti-flood discipline."
+#
+# Additional outputs introduced by BPR (in this dispatch):
+#   "replay (echo, FP_i, F_i)"      { yes, no }
+#   "replay (ready, FP_i, F-bar_i)" { yes, no }
+
+# ===== replay (echo, FP_i, F_i) =====
+#
+# Replay the committed echo iff the dispatch is not firing
+# send (echo, D, F_i) on this call AND "have echoed" is set.
+# The committed payload (F_i, FP_i, h_r) is already in
+# instance state from a prior firing of R1; BPR does not
+# change it.  Continues post-abort and post-stored (CT04
+# inventory Q5, Q8): an aborting server's already-emitted
+# echo is consistent with the committed root regardless of
+# the abort (which was about decode-verify on a different
+# predicate); other peers' counters legitimately consume the
+# replay.  See README "Anti-flood discipline" for why
+# "continue" is safe.
+@"replay (echo, FP_i, F_i)","send (echo, D, F_i)","have echoed"
+no,yes,
+yes,no,yes
+no,no,no
+
+# ===== replay (ready, FP_i, F-bar_i) =====
+#
+# Replay the committed ready iff the dispatch is not firing
+# send (ready, D, F-bar_i) on this call AND "have rdsent" is
+# set.  The committed F-bar_i is in instance state from a
+# prior firing of R2a or R3a.  Continues post-stored: replay
+# helps OTHER peers cross r_D = k + t (same reasoning as
+# bracha87 pitfall 10 on post-accept READY replay).
+@"replay (ready, FP_i, F-bar_i)","send (ready, D, F-bar_i)","have rdsent"
+no,yes,
+yes,no,yes
+no,no,no

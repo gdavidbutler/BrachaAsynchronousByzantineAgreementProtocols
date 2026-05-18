@@ -2,15 +2,15 @@
 
 Generated with Claude Code (https://claude.ai/code)
 
-A C library implementing Gabriel Bracha's 1987 paper (Figures 1, 3, and 4 as composable pure state machines; Figure 2 captured for paper completeness and subsumed by Figure 3), plus the BKR94 Asynchronous Common Subset (ACS) protocol built from them.
+A C library implementing Gabriel Bracha's 1987 paper (Figures 1, 3, and 4 as composable pure state machines; Figure 2 captured for paper completeness and subsumed by Figure 3), the BKR94 Asynchronous Common Subset (ACS) protocol built from them, and the Cachin/Tessaro 2004 AVID-H verifiable information dispersal scheme (Disperse + Retrieve + AVID-RBC outer wrap).
 
 ## Overview
 
 This is the only known implementation of Bracha 1987 as composable pure state machines, with module boundaries that match the paper's figures. ANSI C89, zero dependencies. No I/O, no threads, no dynamic allocation -- the caller provides memory and executes output actions.
 
-Each module boundary matches the paper exactly, so the paper's proofs apply per-module: Lemmas 1-4 to Fig 1, Lemmas 5-7 to Fig 2/3, Lemmas 9-10 and Theorems 1-2 to Fig 4.
+Each module boundary matches its source paper exactly, so the paper's proofs apply per-module: Lemmas 1-4 to Fig 1, Lemmas 5-7 to Fig 2/3, Lemmas 9-10 and Theorems 1-2 to Fig 4 (Bracha 1987); Lemma 2 Parts A-D to `bkr94acs` (BKR94); Theorem 3 / Lemma 5 / Theorem 6 to `ct04Dsp` (Cachin-Tessaro 2004).
 
-The `bkr94acs` module composes these figures into multi-value agreement: N peers propose arbitrary values, and all honest peers agree on the same common subset of at least n-t proposals. This is Ben-Or/Kelmer/Rabin 1994 Section 4 Figure 3 (Protocol Agreement[Q]).
+The `bkr94acs` module composes Bracha's figures into multi-value agreement: N peers propose arbitrary values, and all honest peers agree on the same common subset of at least n-t proposals (Ben-Or/Kelmer/Rabin 1994 Section 4 Figure 3, Protocol Agreement[Q]). The `ct04Dsp` module is a self-contained verifiable information dispersal primitive: one designated dealer disperses a file across n servers such that any k of them can reconstruct it, with each piece bound to a single Merkle root commitment; it sits on its own three-message reliable broadcast (no Bracha layer underneath — that is what CT04 §3.5 AVID-H buys).
 
 This README serves two audiences. **If you are integrating the library**, the load-bearing sections are *When to Use What*, *System Model*, *API Overview*, *Examples*, and *Deployment Notes*. **If you are auditing the implementation or porting it to another language**, additionally read *Design Rationale*, *Architecture*, *Bracha Phase Re-emitter*, *Test Coverage*, *Correctness Audit*, *Implementation Notes*, and *Re-Implementing in Another Language*.
 
@@ -22,6 +22,8 @@ This library provides two application-facing primitives. Pick by the shape of yo
 
 **Common subset — `bkr94acs`.** N peers each propose a value; all correct peers agree on the same common subset of at least `n-t` proposals. Use when you need leaderless agreement on a batch of contributions: HoneyBadger-style atomic broadcast batching, MPC input bundling, distributed candidate selection — anything shaped as "agree on the set" rather than "agree on a single value." See `example/bkr94acs.c`.
 
+**Verifiable information dispersal — `ct04Dsp`.** One designated dealer disperses a file `F` to `n` servers such that any `k` of them can reconstruct it, with Merkle commitment binding every piece to a single dealer-chosen root. Per-piece authentication is delegated to a pluggable threshold-dispersal plugin (`thrDsp`); reliable broadcast on the commitment is achieved by the protocol itself (no Bracha layer underneath — that is what Cachin/Tessaro 2004 §3.5 AVID-H buys). Use when you need to store a large value across `n` parties with bounded per-party storage and asynchronous Byzantine-resilient retrieval, e.g. as the inner reliable broadcast for an outer atomic broadcast that wants `O(n |F|)` instead of `O(n^2 |F|)` communication. See `example/ct04Dsp.c`.
+
 Fig 3 (VALID-set framework) and Fig 4 (binary Byzantine agreement) are exposed for completeness but exist primarily as internal mechanism feeding `bkr94acs`; raw single-bit binary BA has no realistic standalone caller (the seven-year gap between Bracha 1987 and BKR94 1994 is exactly that evidence).
 
 ## The Papers
@@ -29,6 +31,8 @@ Fig 3 (VALID-set framework) and Fig 4 (binary Byzantine agreement) are exposed f
 Gabriel Bracha, "Asynchronous Byzantine Agreement Protocols," *Information and Computation* 75, 130-143 (1987). Implemented in `bracha87.[hc]`.
 
 Michael Ben-Or, Boaz Kelmer, Tal Rabin, "Asynchronous Secure Computations with Optimal Resilience (Extended Abstract)," PODC '94, pages 183-192. Section 4 Figure 3 (Protocol Agreement[Q]) is implemented in `bkr94acs.[hc]`.
+
+Christian Cachin and Stefano Tessaro, "Asynchronous Verifiable Information Dispersal," IEEE/IFIP DSN 2005 (preprint IBM Research Report RZ 3491). Sections 3.3 / 3.5 / 3.6 / 3.7 (AVID, AVID-H, RBC-from-AVID-H, AVID-RBC inner Disperse) are implemented as a single plugin-abstract primitive in `ct04Dsp.[hc]`, with Section 3.7's outer storage wrap in `ct04DspRbc.[hc]` and the Figure 2 Retrieve protocol in `ct04Rtv.[hc]`. The §3.5 plugin-abstract restatement of Figure 1's per-block validity predicate is delegated to a `thrDsp.h` plugin contract; two reference adapters ship in their respective codec sibling repos: `thrDspRsec` (Reed-Solomon) in `../ReedSolomonErasureCoding/`, `thrDspSss` (Shamir Secret Sharing) in `../ShamirSecretSharing/`.
 
 J. H. Saltzer, D. P. Reed, D. D. Clark, "End-To-End Arguments in System Design," *ACM Transactions on Computer Systems* 2(4), 277-288 (1984). Cited as the design rationale for placing the BPR (Bracha Phase Re-emitter) pump at the protocol endpoint rather than in a lower transport layer.
 
@@ -38,11 +42,13 @@ J. H. Saltzer, D. P. Reed, D. D. Clark, "End-To-End Arguments in System Design,"
 
 `BKR94ACS.txt` is the line-by-line extract of BKR94 Section 4 used as `bkr94acs.[hc]`'s reference.
 
+`CT04.txt` is the distilled extract of Cachin/Tessaro 2004 (Sections 2, 3.3, 3.4, 3.5, 3.6, and 3.7's "Achieving the optimal storage blow-up" subsection only) used as `ct04Dsp.[hc]`, `ct04Rtv.[hc]`, and `ct04DspRbc.[hc]`'s reference. AVID-ECC, cAVID, and threshold cryptography are out of scope (incompatible with the stack's `t < n/3` regime and no-threshold-crypto constraint) and noted at the bottom of the extract.
+
 `SRC84.txt` is the relevant extract of the End-to-End paper used as the design citation for BPR.
 
-## Design Rationale — Why These Three Papers
+## Design Rationale — Why These Four Papers
 
-This library exists because the alternatives we evaluated all required machinery we did not want to depend on. The three papers above were chosen as the smallest combination that satisfies our constraints — authenticated multi-value agreement under fair-loss asynchrony, no trusted setup, no pairing-based crypto, no DKG, embeddable in C89 with no dynamic allocation. The choice was load-bearing on each constraint; this section names the alternatives and the reason each was rejected.
+This library exists because the alternatives we evaluated all required machinery we did not want to depend on. The four papers above were chosen as the smallest combination that satisfies our constraints — authenticated multi-value agreement under fair-loss asynchrony plus verifiable storage, no trusted setup, no pairing-based crypto, no DKG, no threshold cryptography, embeddable in C89 with no dynamic allocation. The choice was load-bearing on each constraint; this section names the alternatives and the reason each was rejected.
 
 ### Why Bracha 1987 for reliable broadcast
 
@@ -55,6 +61,14 @@ Bracha's three-phase counting-threshold mechanism (initial / echo / ready) is th
 The agreement primitive we needed is multi-value agreement on a common subset of `n-t` proposals, asynchronous, Byzantine-resilient, with no leader and no view-change machinery.
 
 BKR94 alone is the smallest piece that does ACS with no setup, no leader, and no threshold cryptography — `n` Bracha Fig 1 instances feed `n` binary agreements, and the step-2 trigger ("`n-t` BAs decided 1, vote 0 in the rest") closes it out. We deliberately stopped at ACS: BKR94 itself continues to ASC (asynchronous secure computation, the MPC layer), but ASC has no caller in the stack we are building, and pulling it in would require a private-channels mesh that ACS itself cannot bootstrap.
+
+### Why Cachin-Tessaro 2004 for verifiable information dispersal
+
+The dispersal primitive we needed is an authenticated `(k, n)` file-storage scheme at `t < n/3` with O(n |F|) total communication and per-server storage ~ |F|/k, free of threshold cryptography and shared-randomness setup.
+
+CT04 §3.5 (AVID-H) achieves exactly that: an asynchronous verifiable information dispersal protocol whose reliable broadcast on the Merkle root commitment is internal (no Bracha layer underneath), with the per-block validity predicate `verify(i, F_i, FP_i, h_r)` cleanly factored from the wire rules. The factoring is what lets us implement AVID (§3.3), AVID-H (§3.5), and the inner Disperse of AVID-RBC (§3.7) as a single plugin-abstract dispatch — `thrDsp.h` names the per-block predicate as a vtable entry, and the same `ct04Dsp` C wrapper drives all three. §3.6 (RBC-from-AVID-H) is a deployment-shape choice on the same rules; §3.7's outer wrap adds optimal storage blow-up via a second flat-RS encoding. AVID-ECC (the other §3.7 variant) requires `t < n/4` and is excluded by our `t < n/3` regime; §4 cAVID requires a threshold public-key cryptosystem and is excluded by the no-threshold-crypto constraint.
+
+The plugin abstraction also future-proofs the protocol layer: any threshold-dispersal scheme that exposes the contract in `thrDsp.h` (currently `thrDspRsec` over Reed-Solomon and `thrDspSss` over Shamir Secret Sharing, both shipped from their codec sibling repos) drops into the same `ct04Dsp` dispatch without modifying the protocol code. This repo holds the contract; each codec repo holds its own adapter — the dependency points from codec to contract, not from protocol to codec.
 
 ### Why Saltzer-Reed-Clark 1984 for BPR placement
 
@@ -133,6 +147,17 @@ Three rounds per phase. Embeds a Fig 3 instance internally. Parameterized by a c
 
 Decided processes continue participating so others can reach consensus. Bracha's Theorem 2 bounds the expected number of phases at O(1) under a common-coin assumption; the actual termination behavior depends on the coin function the caller supplies via `bracha87CoinFn` — see "Coin choice — caller responsibility" under Deployment Notes.
 
+### ct04Dsp -- CT04 AVID-H Disperse (and AVID-RBC outer wrap)
+
+Composes a CT04 §3.5 AVID-H Disperse server with the protocol's own three-message reliable broadcast on the Merkle root commitment, parameterised by a `thrDsp.h` threshold-dispersal plugin so that AVID (§3.3), AVID-H (§3.5), and the inner Disperse of AVID-RBC (§3.7) all share one wire-rule dispatch and differ only in the per-block validity predicate the plugin supplies. The §3.6 RBC-from-AVID-H deployment shape — using Disperse as a reliable broadcast that delivers the full file `F-bar` rather than per-server pieces — is a usage choice on the same protocol rules; no separate code path. The §3.7 AVID-RBC outer wrap (`ct04DspRbc.[hc]`) layers a flat `(k_outer = n-t, n)` erasure-coded storage scheme on top of the inner Disperse, taking caller-supplied encoder + hash callbacks so it is not coupled to any specific RS / hash implementation.
+
+`ct04Rtv.[hc]` is the Figure 2 Retrieve protocol: client `(retrieve, ID')` broadcast, server `(block, F'_j, FP'_j, D)` response when `Data[ID']` is bound, client decode on collecting `k` distinct same-root validated blocks. Paper-completeness `.dtc` only — two rules with no test-ordering insight, captured for audit-chain anchoring (the `bracha87Fig2.dtc` pattern).
+
+**Stack-required additions, not in CT04 itself:**
+
+- **BPR placement (Bracha Phase Re-emitter).** Like `bracha87` and `bkr94acs`, `ct04Dsp` does its own per-endpoint re-emission of committed actions on the application's pump tick, sidestepping a deployment-layer ledger. The CT04 paper assumes eventually-reliable channels; over UDP that assumption fails. BPR closes the gap by the same Saltzer-Reed-Clark argument used for Bracha, with one structural twist: CT04 SEND is per-destination (the dealer sends `F_j` specifically to `P_j`), so the replay cursor walks a per-destination ring (`struct bracha87Pump.sendDest`, one packet per call) rather than broadcasting. Anti-flood discipline (one SEND-to-one-destination + one ECHO-broadcast + one READY-broadcast per pump call) follows the same cap-3 rule as the other layers; see "Bracha Phase Re-emitter" below.
+- **Pluggable-dispersal abstraction (`thrDsp.h`).** CT04 §3.5 defines a fixed AVID-H predicate `verify(i, F_i, FP, h_r)` against a Merkle commitment. We generalise the per-block validity predicate, decode-and-verify-all-pieces predicate, per-piece proof extraction, and per-piece *piece* extraction behind the `thrDsp` plugin contract, so the same Disperse dispatch admits Reed-Solomon shards (`thrDspRsec`), Shamir Secret Sharing shares (`thrDspSss`), or any future scheme with a Merkle-rooted commitment and a per-piece authenticator. The plugin contract is what makes `ct04Dsp.dtc` plugin-abstract. `derivedRoot`'s `(root, proof, piece)` triple is a key piece of the contract: an honest server that reaches the interpolation gate without having received the dealer's SEND extracts its own `F-bar_self` from the polynomial via the `piece` output, so the READY broadcast does not depend on having cached `F_self` from R1.
+
 ### bkr94acs -- BKR94 Asynchronous Common Subset
 
 Composes Bracha87 Fig 1 and Fig 4 into multi-value agreement, implementing Ben-Or/Kelmer/Rabin 1994 Section 4 Figure 3 (Protocol Agreement[Q]). BKR94 ACS is the consensus core of HoneyBadgerBFT-family asynchronous BFT systems; this implementation provides it as a standalone primitive without bundling a transaction layer or a transport. See `BKR94ACS.txt` for the line-by-line extract used as the implementation's reference.
@@ -182,6 +207,7 @@ The pump is exposed at the layer that owns the Fig 1 instances:
 | Fig 3 | none | Validator over already-accepted messages; no message state. |
 | Fig 4 | none | Round-driven; Fig 4 broadcasts are new Fig 1 instantiations in the caller. |
 | bkr94acs | `bkr94acsPump` | Owns N proposal Fig 1 instances + N×R×N consensus Fig 1 instances + N Fig 4 instances internally; only the bkr94acs pump can reach them. |
+| ct04Dsp | `ct04DspBpr` (per-instance) + `ct04DspPumpStep` (array) | Per-destination SEND replay walks `struct bracha87Pump.sendDest` one packet per call (paired with broadcast ECHO/READY replays, capped at 3 actions per call). The cursor extension is what makes CT04's "n different SEND payloads to n destinations" replay safely under the same anti-flood discipline as the other layers. |
 
 `bkr94acsPump` walks an internal cursor over (proposal phase, then consensus phase by origin × round × broadcaster), emits one Fig 1 instance's replays per call (≤ 3 actions), and returns 0 only when a full sweep finds nothing — the application's idle signal. Per-origin gating, indexed by `bkr94acsBaDecision(a, origin)`:
 
@@ -237,79 +263,55 @@ while (!silenceQuorumExit) {
 
 ## API Overview
 
-### bracha87 Entry Points
+The public surfaces are `bracha87.h`, `bkr94acs.h`, `ct04Dsp.h`, `ct04Rtv.h`, and `ct04DspRbc.h`. Each is a flat C89 header that lists its entry points with per-function contracts inline — read those for signatures and pre/post-conditions. This section captures the cross-cutting patterns that aren't visible from one header at a time.
 
-bracha87 exposes paper-vocabulary state-machine operations (one rule cluster each), plus a Fig 1 array BPR Pump wrapper (one cursor sweep per call).  Each Fig 1 / Fig 3 / Fig 4 entry point takes the instance plus the rule's natural inputs and returns its actions; cascading across layers is the caller's responsibility (or, for the canonical composition, `bkr94acs`'s responsibility).
+Every public entry point family follows the same shape: an `*Sz` function (compute allocation), an `*Init` function (initialize caller-allocated storage), one or more state-machine input functions, optional Pump entries for BPR replay, and observability accessors. Instances are caller-allocated `unsigned char *` buffers — no dynamic allocation inside the library.
 
-| Function | Purpose |
-|---|---|
-| `bracha87Fig1Sz(n, vLen)` | Compute allocation size for a Fig 1 instance |
-| `bracha87Fig1Init(...)` | Initialize a Fig 1 instance |
-| `bracha87Fig1Origin(f1, value)` | Mark this instance as broadcast originator and store the value (BPR — enables INITIAL replay) |
-| `bracha87Fig1Input(f1, type, from, value, out)` | Process one incoming message; returns action count (0-3) |
-| `bracha87Fig1Bpr(f1, out)` | Emit committed-action replays for one Fig 1 instance; returns action count (0-3); 0 = idle |
-| `bracha87Fig1Value(f1)` | Retrieve committed value (returns non-null when ORIGIN or ECHOED) |
-| `bracha87Fig3Sz(n, maxRounds)` | Compute allocation size for a Fig 3 instance |
-| `bracha87Fig3Init(...)` | Initialize with N function and closure |
-| `bracha87Fig3Accept(f3, round, sender, value, &vc)` | Submit an accepted message for validation |
-| `bracha87Fig3RoundComplete(f3, round)` | Check if round k has n-t validated |
-| `bracha87Fig3GetValid(f3, round, senders, values)` | Retrieve validated messages for round k |
-| `bracha87Fig4Sz(n, maxPhases)` | Compute allocation size for a Fig 4 instance |
-| `bracha87Fig4Init(...)` | Initialize with initial value, coin function, and closure |
-| `bracha87Fig4Round(f4, round, n_msgs, senders, values)` | Process a completed round; returns action bitmask |
+### Shared cursor type
 
-#### Fig 1 array BPR Pump
+All Pump consumers (`bracha87Fig1PumpStep`, `bkr94acsPump`, `ct04DspBpr`, `ct04DspPumpStep`) read a single `struct bracha87Pump` from caller storage, initialized once via `bracha87PumpInit`. The struct carries three fields:
 
-Wraps the per-instance `bracha87Fig1Bpr` with a cursor that walks an application-owned array of Fig 1 instances.  Useful for reliable-broadcast applications that own multiple Fig 1 instances of any shape (single-broadcast streaming, multi-origin reliable multicast, etc.).  Pump cursor lives in caller storage, initialized with `bracha87PumpInit`.
-
-| Function | Purpose |
-|---|---|
-| `bracha87PumpInit(p)` | Initialize a shared Pump cursor |
-| `bracha87Fig1PumpStep(instances, count, p, out, outCap)` | Walk a caller-owned Fig 1 array; one instance's BPR actions per call; returns 0 on full-sweep idle |
-| `bracha87Fig1CommittedCount(instances, count)` | Count of instances with any committed flag (ORIGIN/ECHOED/RDSENT); for K-sweep cadence |
-
-`struct bracha87Fig1Act` carries the act: `act` (INITIAL_ALL / ECHO_ALL / READY_ALL), `idx` (array index), `value` (borrowed).
-
-The same `struct bracha87Pump` cursor type is also consumed by `bkr94acsPump` (cursor unification across the library).
-
-### bkr94acs Entry Points
-
-| Function | Purpose |
-|---|---|
-| `bkr94acsSz(n, vLen, maxPhases)` | Compute allocation size for a BKR94 ACS instance |
-| `bkr94acsInit(...)` | Initialize with peer index, coin function, and closure |
-| `bkr94acsPropose(acs, value, out)` | Mark local proposal Fig 1 as originator and emit one PROP_SEND/INITIAL action (BPR) |
-| `bkr94acsProposalInput(acs, origin, type, from, value, out)` | Process a proposal broadcast message; returns action count |
-| `bkr94acsConsensusInput(acs, origin, round, broadcaster, type, from, value, out)` | Process a consensus message; returns action count |
-| `bkr94acsPump(acs, p, out)` | BPR pump tick using shared `struct bracha87Pump` cursor; one Fig 1 per call; returns action count (0-3); 0 = full-sweep no-commit (one-call-per-tick — see flood warning) |
-| `bkr94acsSubset(acs, origins)` | Retrieve the decided common subset |
-| `bkr94acsProposalValue(acs, origin)` | Retrieve accepted proposal value for an origin |
-| `bkr94acsBaDecision(acs, origin)` | BA decision for origin: 0xFF undecided / 0xFE exhausted / 0 excluded / 1 included |
-| `bkr94acsCommittedFig1Count(acs)` | Count of Fig1 instances with any committed flag (ORIGIN/ECHOED/RDSENT); useful for cadence sizing |
-
-Test `acs->flags & BKR94ACS_F_COMPLETE` to check if all N BAs have decided (the `BKR94ACS_F_THRESHOLD` bit indicates step-2 vote-0 fanout has fired).  Pump cursor lives in caller storage (`struct bracha87Pump`); the application owns the cursor lifetime, the same way every other Pump entry point in this library works.
-
-### Action Struct
-
-`struct bkr94acsAct` carries one library emission. Field usage by `act.act`:
-
-| act value | meaning | populated fields |
+| Field | Used by | Meaning |
 |---|---|---|
-| `BKR94ACS_ACT_PROP_SEND` | broadcast a proposal Fig 1 message | `.origin`, `.type` (BRACHA87_INITIAL/ECHO/READY), `.value` (vLen+1 bytes, borrowed pointer) |
-| `BKR94ACS_ACT_CON_SEND` | broadcast a consensus Fig 1 message | `.origin`, `.round`, `.broadcaster`, `.type`, `.conValue` (binary) |
-| `BKR94ACS_ACT_BA_DECIDED` | a BA reached a decision | `.origin`, `.conValue` (0=excluded, 1=included) |
-| `BKR94ACS_ACT_COMPLETE` | all N BAs decided | (none) |
-| `BKR94ACS_ACT_BA_EXHAUSTED` | a BA's Fig 4 reached `maxPhases` with no decision; the local ACS instance cannot complete (BKR94 Lemma 2 Part B's BA-termination assumption violated). No safe in-protocol recovery — substituting a unilateral decision could disagree with another peer's actual decision and break SubSet agreement. Application must abort and (optionally) restart with fresh state. The library marks `bkr94acsBaDecision[origin] = 0xFE` and continues pumping replays for this origin (other peers may still benefit from earlier-round echoes / readys). Emitted exactly once per BA per ACS instance. | `.origin` |
+| `pos` | all array-walking pumps | cross-instance cursor; advances one instance per call |
+| `sweepActs` | all array-walking pumps | per-sweep emission accounting; resets on cursor wrap; 0 across a wrap signals full-sweep idle |
+| `sendDest` | `ct04DspBpr` / `ct04DspPumpStep` | per-instance per-destination cursor for CT04's per-destination SEND replay; ignored by Bracha / BKR pumps (their replays are broadcast) |
 
-`.value` is a borrowed pointer into the library's committed-value slot — populated as soon as ORIGIN, Rule 1, 2, or 3 commits a value (i.e. while ECHOED is set, before ACCEPT) so PROP_SEND emissions can carry the bytes during ECHO/READY traffic. Valid until the next library call that mutates state. Caller copies if persistence is needed past that boundary. Distinct from `bkr94acsProposalValue`, which queries the same slot but is ACCEPT-gated for non-self origins so application reads see only Bracha-Lemma-2-protected values.
+Consumers ignore fields they don't use, so one cursor type works across all primitives without per-primitive cursor proliferation. The cursor lives in caller storage so parallel sweeps over the same state are permitted (separate cursor per sweep). See the network-flood warning in `bracha87.h` — every Pump entry is one-call-per-tick; do not loop.
 
-### Caller Composition Pattern
+### Action structs (which fields are populated per `act`)
 
-For multi-value agreement, use `bkr94acs` and the application loop shown in the **Bracha Phase Re-emitter (BPR)** section above — it manages all Fig 1 instances internally and provides `bkr94acsPump` for BPR replays. See `example/bkr94acs.c` for a runnable version of this pattern.
+This is the only thing that isn't visible from the header signature at a glance, so it's worth a table. `struct bkr94acsAct`:
 
-For reliable broadcast (Fig 1 only), use `bracha87Fig1Input` per message plus `bracha87Fig1PumpStep` on the caller-owned Fig 1 array per tick. See `example/bracha87Fig1.c` for a runnable version.
+| `act` value | populated fields | meaning |
+|---|---|---|
+| `BKR94ACS_ACT_PROP_SEND` | `.origin`, `.type` (INITIAL/ECHO/READY), `.value` | broadcast a proposal Fig 1 message |
+| `BKR94ACS_ACT_CON_SEND` | `.origin`, `.round`, `.broadcaster`, `.type`, `.conValue` | broadcast a consensus Fig 1 message |
+| `BKR94ACS_ACT_BA_DECIDED` | `.origin`, `.conValue` (0=excluded, 1=included) | a BA reached a decision |
+| `BKR94ACS_ACT_COMPLETE` | (none) | all N BAs decided |
+| `BKR94ACS_ACT_BA_EXHAUSTED` | `.origin` | local BA could not terminate within `maxPhases`; the ACS instance cannot complete (Lemma 2 Part B violated). No safe in-protocol recovery; application must abort. See Implementation Note 12 |
 
-Direct use of Fig 3 (`bracha87Fig3Accept` / `RoundComplete` / `GetValid`) and Fig 4 (`bracha87Fig4Round`) is supported but those layers exist primarily as internal mechanism feeding `bkr94acs`; the realistic application surfaces are the two above. The low-level Fig 3 and Fig 4 entry points remain public for callers that need them (and for `test_predicates.c`, which exercises the algorithmic predicates beneath the dispatch).
+`.value` is a borrowed pointer into the library's committed-value slot — populated as soon as ORIGIN, Rule 1, 2, or 3 commits a value (i.e. while ECHOED is set, before ACCEPT) so PROP_SEND emissions can carry the bytes during ECHO/READY traffic. Valid until the next library call that mutates state. `bkr94acsProposalValue` queries the same physical slot but is ACCEPT-gated for non-self origins, so application reads see only Bracha-Lemma-2-protected values.
+
+`struct ct04DspAct`:
+
+| `act` value | populated fields | meaning |
+|---|---|---|
+| `CT04_DSP_ACT_SEND` | `.dest`, `.pieceIdx` (= `.dest`), `.root`, `.proof`, `.piece` | dealer's per-destination SEND replay; one destination per Bpr call |
+| `CT04_DSP_ACT_ECHO` | `.pieceIdx` (= self), `.root`, `.proof`, `.piece` | broadcast (echo, ...) to all peers |
+| `CT04_DSP_ACT_READY` | `.pieceIdx` (= self), `.root`, `.proof`, `.piece` | broadcast (ready, ...) to all peers |
+| `CT04_DSP_ACT_STORED` | `.pieceIdx` (= self), `.root`, `.proof`, `.piece` (= delivered F-bar_self) | local: instance reached r_D = k + t |
+| `CT04_DSP_ACT_ABORT` | (none) | local: dealer's commitment failed the interpolation check |
+
+`.root` / `.proof` / `.piece` are borrowed pointers into instance storage of the plugin-reported sizes; valid until the next library call that mutates the instance. Caller copies if persistence past that boundary is needed.
+
+`struct bracha87Fig1Act` is trivial — three always-populated fields (`act`, `idx`, `value`) — and documented inline in `bracha87.h`. `struct ct04RtvServerResp` and `struct ct04RtvClientAct` similarly trivial; see `ct04Rtv.h`.
+
+### Caller composition
+
+For multi-value agreement, use `bkr94acs` and the application loop in the [BPR](#bracha-phase-re-emitter-bpr) section — it owns all Fig 1 instances internally and exposes `bkr94acsPump` for BPR replays. For single-origin reliable broadcast over a caller-owned Fig 1 array, use `bracha87Fig1Input` per message plus `bracha87Fig1PumpStep` per tick. For verifiable file dispersal, use `ct04DspInit` + `ct04DspOrigin` (dealer only) + `ct04DspInput` per arriving wire message + `ct04DspBpr` (per-instance) or `ct04DspPumpStep` (array-walking) per tick. Each example program in `example/` is a runnable version of its primitive's loop.
+
+Direct use of Fig 3 (`bracha87Fig3Accept` / `RoundComplete` / `GetValid`) and Fig 4 (`bracha87Fig4Round`) is supported but those layers exist primarily as internal mechanism feeding `bkr94acs`; the realistic application surfaces are the four primitive headers above. The low-level Fig 3 and Fig 4 entry points remain public for callers that need them (and for `test_predicates.c`, which exercises the algorithmic predicates beneath the dispatch).
 
 ## Operational Limits
 
@@ -326,18 +328,20 @@ Round indices range from 0 to `BRACHA87_ROUNDS_PER_PHASE * maxPhases - 1` (max 2
 
 ```bash
 make            # build .o and examples
-make check      # build and run all five test binaries (see Test Coverage below)
-make clean      # remove build artifacts
-make clobber    # remove DTC generated .c files
+make check      # build and run every test binary (see Test Coverage below)
+make clean      # remove build artifacts and test/example binaries
+make clobber    # also remove DTC-generated dispatch snippets
 ```
 
-Building requires `../decisionTableCompiler/dtc` and `awk` to compile the `.dtc` rule tables to dispatch C snippets; the Makefile invokes both automatically. The generated `.psu` and `*Fig{1,3,4}.c` / `bkr94acsRules.c` files are reproducible artifacts (`make clobber` removes them, the next `make` regenerates).
+Building requires `../decisionTableCompiler/dtc` and `awk` to compile the `.dtc` rule tables to dispatch C snippets; the Makefile invokes both automatically. The generated `.psu` and `bracha87Fig{1,3,4}.c` / `bkr94acsRules.c` / `ct04DspRules.c` files are reproducible artifacts (`make clobber` removes them, the next `make` regenerates).
+
+`ct04Dsp` and friends additionally consume the threshold-dispersal plugin contract `thrDsp.h` plus an adapter. The two reference adapters live in their respective codec sibling repos — `../ReedSolomonErasureCoding/thrDspRsec.[hc]` and `../ShamirSecretSharing/thrDspSss.[hc]` — each built as `thrDspRsec.o` / `thrDspSss.o` in its own repo's `make`. The ABAP Makefile's `test_ct04Dsp`, `test_ct04DspQ7`, and `example_ct04Dsp` rules pull those object files directly via `../`-relative paths; run `make` in each codec repo first if you have not built them recently.
 
 Compiler flags: `-std=c89 -pedantic -Wall -Wextra -Os -g`
 
 ## Test Coverage
 
-`make check` runs five test binaries that exercise the library at three different scopes. Each scope catches a different class of regression; together they form a defense in depth.
+`make check` runs seven test binaries spanning two layers (protocol white-box and protocol black-box / paper-vocabulary). Each scope catches a different class of regression; together they form a defense in depth. The plugin-contract suites (`thrDspRsecTest`, `thrDspSssTest`) live with the adapters in `../ReedSolomonErasureCoding/` and `../ShamirSecretSharing/` — run `make check` in each codec repo to exercise the `thrDsp.h` contract against its adapter.
 
 | Binary | Scope | What it asserts |
 |---|---|---|
@@ -346,14 +350,18 @@ Compiler flags: `-std=c89 -pedantic -Wall -Wextra -Os -g`
 | `test_bracha87_blackbox` | Protocol black-box (bracha87) | 153 checks via the public bracha87.h surface only. Validity, agreement, totality, and Lemma-2 invariants at n=4 t=1; precise echo-threshold tests at n=4 and n=7; Fig 1 array Pump cursor walk, sparse-slot skip, multi-act emission; low-level `bracha87Fig4Round` post-EXHAUSTED safety. Tests are derived from the header contract and `Bracha87.txt` only — no `bracha87.c` reads. |
 | `test_bkr94acs` | Protocol white-box (bkr94acs) | All-to-all simulation with shuffled delivery, multi-byte values, identical proposals, larger N, post-decide continuation regression, step-2 trigger regression, BPR pump tests (50% drop end-to-end, cursor coverage, decided-0 skip, Byzantine-silent canary at 50000+ sweeps for pitfall 11, 75%/87.5% drop convergence), EXHAUSTED single-emission + 0xFE sentinel, ProposalValue ACCEPT-gate transition (ECHOED-only → NULL, post-ACCEPT → value, ORIGIN-bit carve-out for self-origin). Reaches into `a->flags & BKR94ACS_F_THRESHOLD`, `a->nDecided`, and the `data[]` layout for setup and assertion. |
 | `test_bkr94acs_blackbox` | Protocol black-box (bkr94acs) | Section A: Sz/Init contract, Propose round-trip + idempotency, defensive nulls. Section B: Lemma 2 Parts A/B/C/D explicit at n=4/n=7, identical proposals, multi-byte values, step-2 trigger uses BA-decision count not Fig1-ACCEPT count, single-input-per-BA-per-peer (paper Implementer remark), honest-exclusion contract. Section C: Pump idle on fresh peer, Pump after Propose, MAX_ACTS bound, CommittedFig1Count monotone, silence-quorum signal, 50% drop convergence, silent-Byzantine canary. Section D: BA_EXHAUSTED single emission + sentinel + permanent !complete, Pump continues post-EXHAUSTED. Section E: equivocating proposer (Bracha Lemma 2 inheritance). Tests derived from `bkr94acs.h`, `bracha87.h`, `BKR94ACS.txt`, `Bracha87.txt`, and the bracha87 black-box style — no `.c` reads. |
+| `test_ct04Dsp` | Protocol white-box (ct04Dsp + Retrieve + RBC) | Disperse + Retrieve + AVID-RBC roundtrip at n=4 t=1 and n=7 t=2 over both `thrDspRsec` and `thrDspSss` plugins, driven purely by `ct04DspBpr` pump cadence (no SEND pre-queue). SEND-loss regression: dealer SEND to peer N-1 dropped at the wire, peer N-1 still reaches STORED via the polynomial's reconstructed `F-bar_self`. Q5 regression `runAbortContinueReplay`: Byzantine Frankenstein dealer triggers R2b abort at every peer, verifies `ct04DspBpr` still emits the original ECHO replay with the original (piece, proof, root) on every aborted instance — `F_ECHOED` is not retired by `F_TERMINATED`. AVID-RBC outer wrap exercised end-to-end with a flat-RS encoder + RMD128 hash callback. |
+| `test_ct04DspQ7` | Protocol white-box (Byzantine originator) | Q7 regression: includes `ct04Dsp.c` directly (same precedent as `test_predicates.c` ↔ `bracha87.c`) to reach the private layout macros and inject a Byzantine ORIGIN state — Frankenstein-committed `pendingPc` / `pendingPr` / `rootCmt` plus `F_ORIGIN | F_HAVEROOT`. Drives the dealer's own loopback SEND + cross-peer ECHO injection until R2b fires the originator's abort, then verifies `F_ORIGIN` survives `F_TERMINATED` and that `ct04DspBpr` keeps emitting per-destination SEND replays with the correct frankenLeaves[dest] / frankenProofs[dest] payload pair across the full `sendDest` ring. |
 
 The white-box / black-box pairing surfaces a different class of bug at each layer. White-box catches internal-invariant regressions (a state-machine flag set wrong, a ledger field unbumped). Black-box catches API contract drift — header text and code behavior pulling apart over time. Recent contract-drift fix caught by the black-box suite: `bkr94acsProposalValue`'s ACCEPT-gate (header documented "0 if not yet accepted" but pre-fix returned ECHOED-stored bytes, exposing pre-Lemma-2 values to callers).
+
+The plugin-contract suites (`thrDspRsecTest` in `../ReedSolomonErasureCoding/`, `thrDspSssTest` in `../ShamirSecretSharing/`) anchor `thrDsp.h`'s vtable independently of `ct04Dsp`: any future adapter can be qualified against the same fixtures, and any `thrDsp.h` extension is exercised at the adapter layer first.
 
 The black-box suites stay strict about scope: only `*.h`, paper-extract `.txt`, and the matching black-box-style sibling are read while writing tests. When a test fails, the contract sources alone determine whether to tighten the code or rewrite the comment.
 
 ## Examples
 
-Two runnable examples sit in `example/`, one per application-facing API surface. Each runs in a single process with a synchronous in-memory queue (no loss, no reordering, no asynchrony) — they exercise the protocol state machines and the BPR pump but do **not** exercise the deployment-time termination policies (silence-quorum + K-sweep gate, abandonment) needed under real asynchronous transport.
+Three runnable examples sit in `example/`, one per application-facing API surface. Each runs in a single process with a synchronous in-memory queue (no loss, no reordering, no asynchrony) — they exercise the protocol state machines and the BPR pump but do **not** exercise the deployment-time termination policies (silence-quorum + K-sweep gate, abandonment) needed under real asynchronous transport.
 
 The low-level Fig 3 and Fig 4 entry points (`bracha87Fig3Accept`, `bracha87Fig4Round`) have no dedicated examples — those layers exist as internal mechanism feeding `bkr94acs`.  Fig 4 (raw single-bit binary BA) has no realistic standalone caller, evidenced by the seven-year gap between Bracha 1987 and BKR94 1994; Fig 3 (the VALID-set framework) exists to feed Fig 4 and inherits the same "no standalone need" through it.  Their behaviour is exercised through `bkr94acs` and through the test suites.
 
@@ -374,6 +382,17 @@ The low-level Fig 3 and Fig 4 entry points (`bracha87Fig3Accept`, `bracha87Fig4R
 ./example_bkr94acs 4 0 joe sam sally tim        # t=0: all proposals included
 ./example_bkr94acs -v 7 2 alpha bravo charlie delta echo foxtrot golf
 ```
+
+`example/ct04Dsp.c` — verifiable information dispersal + retrieval, plugin-selectable:
+
+```bash
+./example_ct04Dsp                                # rsec / n=4 t=1 / payload 96B (defaults)
+./example_ct04Dsp -p sss                         # Shamir Secret Sharing instead
+./example_ct04Dsp -p rsec -n 7 -t 2 -L 1024      # bigger config
+./example_ct04Dsp -p sss  -n 7 -t 2 -L 1024
+```
+
+Each run reports the dealer's committed Merkle root, ticks to convergence (full `ct04DspBpr` pump cadence — no SEND pre-queue), wire-action count, and a Retrieve roundtrip that decodes the original payload from any k blocks.
 
 ## Deployment Notes
 
@@ -499,7 +518,7 @@ A port that wants to preserve this library's correctness story has two pieces of
 
 ### Paper-Faithful Dispatch via DTC
 
-Each module's per-call decision logic is captured in a CSV decision table written in the paper's vocabulary (`bracha87Fig{1,3,4}.dtc`, `bkr94acs.dtc`). A small bridge per module (`*ToC.dtc`) maps domain names and values to C identifiers and constants. The decisionTableCompiler (`../decisionTableCompiler/dtc`) co-compiles each pair to an optimal-depth pseudocode dispatch, which a local `psu.awk` translates to a C snippet the entry-point function `#include`s.
+Each module's per-call decision logic is captured in a CSV decision table written in the paper's vocabulary (`bracha87Fig{1,3,4}.dtc`, `bkr94acs.dtc`, `ct04Dsp.dtc`). A small bridge per module (`*ToC.dtc`) maps domain names and values to C identifiers and constants. The decisionTableCompiler (`../decisionTableCompiler/dtc`) co-compiles each pair to an optimal-depth pseudocode dispatch, which a local `psu.awk` translates to a C snippet the entry-point function `#include`s.
 
 | Source | Bridge | Generated snippet | Entry point | Depth |
 |--------|--------|-------------------|-------------|-------|
@@ -508,6 +527,8 @@ Each module's per-call decision logic is captured in a CSV decision table writte
 | `bracha87Fig3.dtc` | `bracha87Fig3ToC.dtc` | `bracha87Fig3.c` | `bracha87Fig3Accept` | 4 |
 | `bracha87Fig4.dtc` | `bracha87Fig4ToC.dtc` | `bracha87Fig4.c` | `bracha87Fig4Round` | 6 |
 | `bkr94acs.dtc` | `bkr94acsToC.dtc` | `bkr94acsRules.c` | both bkr94acs entry points (one snippet, two `#include`s) | 7 |
+| `ct04Dsp.dtc` | `ct04DspToC.dtc` | `ct04DspRules.c` | both `ct04DspInput` and `ct04DspBpr` (one snippet, two `#include`s — same multi-call-site pattern as `bkr94acsRules.c`) | 9 |
+| `ct04Rtv.dtc` | (none — captured for paper completeness, like `bracha87Fig2.dtc`) | — | — | — |
 
 `dtc` enforces exhaustiveness and exclusivity of the rules at compile time. Depths are full-optimum; full search confirms each is depth-minimal for its boundary-input set). The C wrapper computes boundary inputs, `#include`s the dispatch, and applies the boolean outputs as side effects in an order that is the API contract (e.g. for Fig 1: `echo` before `ready` before `accept`). See `decisionTableCompiler/README.md` for the bridge mechanism.
 
@@ -515,10 +536,11 @@ A re-implementation that does not want a DTC dependency can transcribe the dispa
 
 ### Where to start
 
-- **`Bracha87.txt`** and **`BKR94ACS.txt`** are the paper extracts. Start here.
-- **`bracha87Fig{1,3,4}.dtc`** and **`bkr94acs.dtc`** are the paper-vocabulary decision tables, rule-by-rule commented to the paper. These are the API contract for the dispatch.
+- **`Bracha87.txt`**, **`BKR94ACS.txt`**, and **`CT04.txt`** are the paper extracts. Start here.
+- **`bracha87Fig{1,3,4}.dtc`**, **`bkr94acs.dtc`**, and **`ct04Dsp.dtc`** are the paper-vocabulary decision tables, rule-by-rule commented to the paper. These are the API contract for the dispatch.
+- **`thrDsp.h`** is the plugin contract `ct04Dsp` consumes. A port that wants to support a new threshold-dispersal scheme writes a new adapter against this contract; `thrDspRsec` and `thrDspSss` are reference implementations.
 - **`test/test_predicates.c`** is the paper-direct reference for `fig3IsValid`, `fig4Nfn`, and the Fig 3 cascade — exhaustive enumeration at n=4, t=1. A port should pass this corpus.
-- **`test/test_bracha87.c`** and **`test/test_bkr94acs.c`** are the integration-test corpus, including the regression checks named in Implementation Notes #9–#12.
+- **`test/test_bracha87.c`**, **`test/test_bkr94acs.c`**, **`test/test_ct04Dsp.c`**, and **`test/test_ct04DspQ7.c`** are the integration-test corpus, including the regression checks named in Implementation Notes #9–#12 and the CT04 SEND-loss / Q5 / Q7 regressions.
 - **Implementation Notes #1–#12 above** are the traps. Each one names a specific paper-vs-code divergence and (where applicable) the regression test that catches it.
 
 ## License
